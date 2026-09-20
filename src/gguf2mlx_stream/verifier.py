@@ -1,0 +1,261 @@
+"""Verification layer.
+
+Checks a converted MLX-LM directory against its source GGUF and the
+architecture config:
+
+* index / shard consistency and key-set parity with the plan;
+* shape checks for every planned tensor;
+* finiteness (NaN/inf) checks for every tensor in the output;
+* numeric spot checks: planned tensors are recomputed from the GGUF through
+  the same operator pipeline and compared against the saved weights
+  (dequantized first for quantized tensors);
+* structural quantization checks (packed/scales/biases triple shapes);
+* optional ``mlx_lm.load()`` smoke test.
+
+llama.cpp (``llama-completion``) is deliberately NOT required: it is an
+optional external semantic check, not part of this verifier.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, field
+from typing import Any, Mapping
+
+import numpy as np
+from safetensors import safe_open
+
+from .errors import VerifyError
+from .ops import all_ops
+from .ops.base import OpContext
+from .planner import ConversionPlan
+from .quantize import dequantize_weights
+from .source.gguf import GGUFSource
+
+_DEFAULT_TOL = {2: 0.06, 3: 0.04, 4: 0.02, 6: 0.01, 8: 0.005}  # absolute floors
+
+
+@dataclass
+class VerifyReport:
+    checked_numeric: int = 0
+    checked_shapes: int = 0
+    checked_finite: int = 0
+    failures: list[str] = field(default_factory=list)
+    details: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.failures
+
+
+def _load_output(out_dir: str) -> tuple[dict[str, str], dict[str, Any]]:
+    index_path = os.path.join(out_dir, "model.safetensors.index.json")
+    if not os.path.isfile(index_path):
+        # single-file layout
+        single = os.path.join(out_dir, "model.safetensors")
+        if not os.path.isfile(single):
+            raise VerifyError(f"{out_dir}: no safetensors index or model.safetensors")
+        with safe_open(single, framework="numpy") as f:
+            keys = list(f.keys())
+        return {k: "model.safetensors" for k in keys}, {}
+    with open(index_path) as f:
+        index = json.load(f)
+    return index["weight_map"], index.get("metadata", {})
+
+
+def _saved(out_dir: str, weight_map: Mapping[str, str], key: str) -> np.ndarray:
+    with safe_open(os.path.join(out_dir, weight_map[key]), framework="numpy") as f:
+        if key not in f.keys():
+            raise VerifyError(f"key {key!r} missing from {weight_map[key]}")
+        return f.get_tensor(key)
+
+
+def _recompute(plan: ConversionPlan, source: GGUFSource, job) -> np.ndarray:
+    slots: dict[str, np.ndarray] = {}
+    for sname, tensor_name, rows in job.slots:
+        if rows is not None:
+            arr = source.read_rows(tensor_name, rows[0], rows[1])
+        else:
+            arr = source.read_matrix(tensor_name)
+            in_mem = next((s for n, _, s in job.slot_specs if n == sname), None)
+            if in_mem is not None:
+                sl = [slice(None)] * arr.ndim
+                hi = in_mem.hi if in_mem.hi is not None else arr.shape[in_mem.axis]
+                sl[in_mem.axis] = slice(int(in_mem.lo), int(hi))
+                arr = np.ascontiguousarray(arr[tuple(sl)])
+        slots[sname] = arr
+    available = dict(slots)
+    prev = None
+    ctx = OpContext(dims=plan.dims, tensor_name=job.source.name, dest_name=job.dest)
+    if not job.steps:
+        return slots["x"]
+    for i, step in enumerate(job.steps):
+        spec = all_ops()[step.op]
+        if step.inputs:
+            order = list(step.inputs)
+            inputs = {n: available[n] for n in order}
+        else:
+            key = step.input or prev or "x"
+            if key == "_":
+                key = prev
+            order = [key]
+            inputs = {key: available[key]}
+        out = spec.fn(inputs, order, dict(step.args), ctx)
+        key = step.output or f"_step{i}"
+        available[key] = out
+        prev = key
+    return available[prev]
+
+
+def verify_conversion(
+    plan: ConversionPlan,
+    source: GGUFSource,
+    out_dir: str,
+    bits: int | None = None,
+    group_size: int = 64,
+    tolerance: float | None = None,
+    verify_all_quantized: bool = False,
+    check_finite_all: bool = True,
+) -> VerifyReport:
+    """Run all checks; returns a report (never raises for check failures)."""
+    report = VerifyReport()
+    weight_map, meta = _load_output(out_dir)
+    out_keys = set(weight_map)
+
+    # shard files exist
+    for fname in sorted(set(weight_map.values())):
+        if not os.path.isfile(os.path.join(out_dir, fname)):
+            report.failures.append(f"missing shard file {fname}")
+
+    # key-set parity with the plan (quantized jobs also emit scales/biases)
+    planned = set()
+    for job in plan.jobs:
+        planned.add(job.dest)
+        if job.quantize:
+            base = job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+            planned.add(base + ".scales")
+            planned.add(base + ".biases")
+    extra = sorted(out_keys - planned)
+    missing = sorted(planned - out_keys)
+    if extra:
+        report.failures.append(f"output contains keys not in plan: {extra[:5]}")
+    if missing:
+        report.failures.append(f"plan keys missing from output: {missing[:5]}")
+
+    # per-job checks
+    quant_cfg_bits = bits
+    if quant_cfg_bits is None:
+        cfg_path = os.path.join(out_dir, "config.json")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path) as f:
+                q = json.load(f).get("quantization")
+            quant_cfg_bits = int(q["bits"]) if q else None
+    if quant_cfg_bits is None:
+        raise VerifyError("output is not quantized; verify expects a quantized output")
+
+    seen_rules: set[str] = set()
+    for job in plan.jobs:
+        if job.dest not in out_keys:
+            continue
+        if job.quantize:
+            base = job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+            packed = _saved(out_dir, weight_map, job.dest)
+            scales = _saved(out_dir, weight_map, base + ".scales")
+            biases = _saved(out_dir, weight_map, base + ".biases")
+            rows = job.source.hf_shape[0]
+            # structural checks are cheap: run for every quantized tensor
+            if packed.dtype != np.uint32 or packed.shape[0] != rows:
+                report.failures.append(
+                    f"{job.dest}: packed shape/dtype {packed.shape}/{packed.dtype} "
+                    f"inconsistent with rows {rows}"
+                )
+            if scales.dtype != np.float16 or biases.dtype != np.float16:
+                report.failures.append(f"{job.dest}: scales/biases must be float16")
+            if scales.shape[0] != rows or biases.shape[0] != rows:
+                report.failures.append(f"{job.dest}: scales/biases row mismatch")
+            report.checked_shapes += 1
+            # numeric spot checks are sampled: first job per rule + small tensors
+            small = job.source.n_bytes < 64 * 2**20
+            do_numeric = verify_all_quantized or small or (job.rule.display_name not in seen_rules)
+            seen_rules.add(job.rule.display_name)
+            if not do_numeric:
+                continue
+            expected = _recompute(plan, source, job)
+            got = np.asarray(
+                dequantize_weights(packed, scales, biases, quant_cfg_bits, group_size)
+            )
+            # scale-aware default tolerance: one quantization step of the
+            # tensor's value range, floored at a small absolute value
+            tol = tolerance
+            if tol is None:
+                span = float(expected.max()) - float(expected.min())
+                tol = max(_DEFAULT_TOL.get(quant_cfg_bits, 0.1) * 0.2,
+                          span / (2 ** quant_cfg_bits - 1))
+            diff = float(np.abs(got - expected).max())
+            if got.shape != expected.shape:
+                report.failures.append(
+                    f"{job.dest}: shape {got.shape} != expected {expected.shape}"
+                )
+            elif diff > tol:
+                report.failures.append(
+                    f"{job.dest}: max|diff| {diff:.6g} > tol {tol:g}"
+                )
+            else:
+                report.details.append(
+                    f"OK {job.dest}: max|diff|={diff:.6g} (tol {tol:g})"
+                )
+            report.checked_numeric += 1
+        else:
+            expected = _recompute(plan, source, job)
+            saved = _saved(out_dir, weight_map, job.dest)
+            tol = tolerance if tolerance is not None else 1e-5
+            report.checked_shapes += 1
+            report.checked_numeric += 1
+            if saved.shape != expected.shape:
+                report.failures.append(
+                    f"{job.dest}: shape {saved.shape} != expected {expected.shape}"
+                )
+            else:
+                diff = float(np.abs(saved.astype(np.float64) - expected.astype(np.float64)).max())
+                if diff > tol:
+                    report.failures.append(
+                        f"{job.dest}: max|diff| {diff:.6g} > tol {tol:g}"
+                    )
+                else:
+                    report.details.append(
+                        f"OK {job.dest}: max|diff|={diff:.6g} (tol {tol:g})"
+                    )
+
+    # finiteness over every tensor in the output
+    if check_finite_all:
+        for key in sorted(out_keys):
+            arr = _saved(out_dir, weight_map, key)
+            report.checked_finite += 1
+            if arr.dtype in (np.float16, np.float32, np.float64) and not np.isfinite(arr).all():
+                report.failures.append(f"{key}: contains non-finite values")
+
+    return report
+
+
+def load_test(out_dir: str, prompt: str = "Hello", max_tokens: int = 8) -> str:
+    """Optional mlx-lm load + short generation smoke test."""
+    try:
+        from mlx_lm import load, generate
+        from mlx_lm.sample_utils import make_sampler
+    except ImportError as exc:  # pragma: no cover
+        raise VerifyError(
+            f"mlx-lm not available for load test: {exc} (pip install 'gguf2mlx-stream[loadtest]')"
+        ) from None
+    model, tokenizer = load(out_dir)
+    formatted = tokenizer.apply_chat_template(
+        [{"role": "user", "content": prompt}], add_generation_prompt=True, tokenize=False
+    )
+    out = generate(
+        model,
+        tokenizer,
+        prompt=formatted,
+        max_tokens=max_tokens,
+        sampler=make_sampler(temp=0.0),
+    )
+    return out

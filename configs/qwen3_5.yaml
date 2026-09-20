@@ -1,0 +1,263 @@
+# Declarative architecture config: Qwen3.5 hybrid text models (qwen3_5_text).
+#
+# Applies to compatible Qwen3.5 dense/hybrid finetunes exported by
+# llama.cpp-style GGUF writers: gated DeltaNet (GDN) linear attention layers
+# interleaved with full attention every `full_attention_interval` layers, plus
+# a trailing MTP/next-token-prediction block that is dropped for the proven
+# MLX inference layout.
+#
+# Non-obvious conventions preserved from the golden reference conversion
+# (all numerically verified against the original HF BF16 checkpoint):
+#
+# 1. RMSNorm "+1": llama.cpp bakes the +1 into norm weights. Norms are copied
+#    verbatim (no +1 applied here; mlx-lm's qwen3_5 sanitize does not re-add
+#    one either for this layout).
+# 2. GDN v-head permutation: llama.cpp stores v-head tensors as
+#    concat(hf[0::2], hf[1::2]) over the value-head axis; the
+#    `qwen35_v_head_unpermute` plugin inverts it (in_proj_qkv v-rows,
+#    in_proj_z rows, in_proj_a/b rows with block 1, out_proj cols, conv1d
+#    v-rows, dt_bias with block 1).
+# 3. A_log: GGUF ssm_a holds -exp(A_log) in GGUF head order, hence the
+#    pipeline unzip -> neg -> log.
+# 4. conv1d: (dim, k) -> (dim, k, 1) via unsqueeze(-1).
+# 5. MTP block (blk.{mtp_layer}.*) is explicitly DROPPED, not silently
+#    ignored: the drop rule below is what makes unmapped tensors legal.
+# 6. Output config uses model_type "qwen3_5" with text fields nested under
+#    "text_config" — "qwen3_5_text" is not importable by current mlx-lm.
+
+architecture:
+  id: qwen3_5
+  aliases: [qwen3_5_text]
+  gguf_arch: qwen3_5_text
+  description: >
+    Qwen3.5 hybrid text model (GDN linear attention + periodic full
+    attention) in llama.cpp GGUF layout.
+
+# Dimensions resolve from GGUF metadata first, then from an optional
+# reference config.json (--source-config). List values are fallback chains.
+dims:
+  hidden_size: [gguf:embedding_length, ref:hidden_size]
+  n_layers: [gguf:block_count, ref:num_hidden_layers]
+  vocab_size: [gguf:vocab_size, ref:vocab_size]
+  n_heads: [gguf:attention.head_count, ref:num_attention_heads]
+  n_kv_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
+  head_dim: [gguf:attention.key_length, ref:head_dim]
+  intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
+  linear_num_key_heads: [gguf:linear_num_key_heads, ref:linear_num_key_heads]
+  linear_key_head_dim: [gguf:linear_key_head_dim, ref:linear_key_head_dim]
+  linear_num_value_heads: [gguf:linear_num_value_heads, ref:linear_num_value_heads]
+  linear_value_head_dim: [gguf:linear_value_head_dim, ref:linear_value_head_dim]
+  linear_conv_kernel_dim: [gguf:linear_conv_kernel_dim, ref:linear_conv_kernel_dim]
+  key_dim: {mul: [linear_num_key_heads, linear_key_head_dim]}
+  value_dim: {mul: [linear_num_value_heads, linear_value_head_dim]}
+  conv_dim: {add: [{mul: [2, key_dim]}, value_dim]}
+  mtp_layer: [gguf:block_count, ref:num_hidden_layers]
+
+rules:
+  # ---- MTP / next-token-prediction block: explicitly dropped (first rule
+  # wins, so blk.{mtp_layer}.* never reaches the layer rules below) ----
+  - name: mtp_drop
+    match: "blk\\.{mtp_layer}\\..*"
+    drop: true
+
+  # ---- global ----
+  - name: embeddings
+    match: "token_embd\\.weight"
+    dest: "language_model.model.embed_tokens.weight"
+    expect_shape: [vocab_size, hidden_size]
+
+  - name: lm_head
+    match: "output\\.weight"
+    dest: "language_model.lm_head.weight"
+    expect_shape: [vocab_size, hidden_size]
+
+  - name: final_norm
+    match: "output_norm\\.weight"
+    dest: "language_model.model.norm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # ---- per-layer norms (verbatim, +1 already baked in by llama.cpp) ----
+  - name: input_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.attn_norm\\.weight"
+    dest: "language_model.model.layers.{n}.input_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: post_attention_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.post_attention_norm\\.weight"
+    dest: "language_model.model.layers.{n}.post_attention_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # ---- full-attention layers (q rows carry a fused [q; gate]) ----
+  - name: full_attn_q
+    match: "blk\\.(?P<n>\\d+)\\.attn_q\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.q_proj.weight"
+    expect_shape: [{mul: [2, n_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_k
+    match: "blk\\.(?P<n>\\d+)\\.attn_k\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.k_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_v
+    match: "blk\\.(?P<n>\\d+)\\.attn_v\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.v_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_o
+    match: "blk\\.(?P<n>\\d+)\\.attn_output\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.o_proj.weight"
+    expect_shape: [hidden_size, hidden_size]
+
+  - name: full_attn_q_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_q_norm\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.q_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  - name: full_attn_k_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_k_norm\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.k_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  # ---- GDN linear-attention layers ----
+  - name: gdn_in_proj_qkv
+    match: "blk\\.(?P<n>\\d+)\\.attn_qkv\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_qkv.weight"
+    expect_shape: [conv_dim, hidden_size]
+    inputs:
+      qk: {slice: {axis: 0, lo: 0, hi: {mul: [2, key_dim]}}}
+      v:  {slice: {axis: 0, lo: {mul: [2, key_dim]}, hi: conv_dim}}
+    steps:
+      - {op: qwen35_v_head_unpermute, input: v, output: v_nat, args: {axis: 0}}
+      - {op: concat, inputs: [qk, v_nat], args: {axis: 0}}
+
+  - name: gdn_in_proj_z
+    match: "blk\\.(?P<n>\\d+)\\.attn_gate\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_z.weight"
+    expect_shape: [value_dim, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0}}
+
+  - name: gdn_in_proj_a
+    match: "blk\\.(?P<n>\\d+)\\.ssm_alpha\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_a.weight"
+    expect_shape: [linear_num_value_heads, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  - name: gdn_in_proj_b
+    match: "blk\\.(?P<n>\\d+)\\.ssm_beta\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_b.weight"
+    expect_shape: [linear_num_value_heads, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  - name: gdn_out_proj
+    match: "blk\\.(?P<n>\\d+)\\.ssm_out\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.out_proj.weight"
+    expect_shape: [hidden_size, value_dim]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 1}}
+
+  - name: gdn_conv1d
+    match: "blk\\.(?P<n>\\d+)\\.ssm_conv1d\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.conv1d.weight"
+    expect_shape: [conv_dim, linear_conv_kernel_dim]
+    quantize: false
+    dtype: float32
+    inputs:
+      qk: {slice: {axis: 0, lo: 0, hi: {mul: [2, key_dim]}}}
+      v:  {slice: {axis: 0, lo: {mul: [2, key_dim]}, hi: conv_dim}}
+    steps:
+      - {op: qwen35_v_head_unpermute, input: v, output: v_nat, args: {axis: 0}}
+      - {op: concat, inputs: [qk, v_nat], args: {axis: 0}}
+      - {op: unsqueeze, input: "_", args: {axis: -1}}
+
+  - name: gdn_dt_bias
+    match: "blk\\.(?P<n>\\d+)\\.ssm_dt\\.bias"
+    dest: "language_model.model.layers.{n}.linear_attn.dt_bias"
+    expect_shape: [linear_num_value_heads]
+    quantize: false
+    dtype: float32
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  # A_log = log(-unpermute(ssm_a)); neg/log are generic operators.
+  - name: gdn_a_log
+    match: "blk\\.(?P<n>\\d+)\\.ssm_a"
+    dest: "language_model.model.layers.{n}.linear_attn.A_log"
+    expect_shape: [linear_num_value_heads]
+    quantize: false
+    dtype: float32
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+      - {op: neg}
+      - {op: log}
+
+  - name: gdn_norm
+    match: "blk\\.(?P<n>\\d+)\\.ssm_norm\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.norm.weight"
+    expect_shape: [linear_value_head_dim]
+    quantize: false
+    dtype: float32
+
+  # ---- MLP (shared by both layer kinds) ----
+  - name: ffn_gate
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.gate_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_up
+    match: "blk\\.(?P<n>\\d+)\\.ffn_up\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.up_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_down
+    match: "blk\\.(?P<n>\\d+)\\.ffn_down\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.down_proj.weight"
+    expect_shape: [hidden_size, intermediate_size]
+
+coverage:
+  per_layer_required:
+    - language_model.model.layers.{layer}.input_layernorm.weight
+    - language_model.model.layers.{layer}.post_attention_layernorm.weight
+    - language_model.model.layers.{layer}.mlp.gate_proj.weight
+    - language_model.model.layers.{layer}.mlp.up_proj.weight
+    - language_model.model.layers.{layer}.mlp.down_proj.weight
+  per_layer_alternatives:
+    - - language_model.model.layers.{layer}.self_attn.q_proj.weight
+      - language_model.model.layers.{layer}.linear_attn.in_proj_qkv.weight
+
+output:
+  model_type: qwen3_5
+  architectures: ["Qwen3_5ForCausalLM"]
+  nest_config_under: text_config
+  top_level:
+    tie_word_embeddings: false
+  text_config:
+    hidden_size: [gguf:embedding_length, ref:hidden_size]
+    num_hidden_layers: [gguf:block_count, ref:num_hidden_layers]
+    vocab_size: [gguf:vocab_size, ref:vocab_size]
+    num_attention_heads: [gguf:attention.head_count, ref:num_attention_heads]
+    num_key_value_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
+    head_dim: [gguf:attention.key_length, ref:head_dim]
+    intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
+  reference_config:
+    drop_fields: [architectures, model_name, unsloth_version]
+  tokenizer_files:
+    - tokenizer.json
+    - tokenizer_config.json
+    - chat_template.jinja
+    - generation_config.json
+    - merges.txt
+    - vocab.json
+  max_shard_bytes: 4294967296

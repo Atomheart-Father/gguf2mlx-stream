@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gguf2mlx-stream"
+version = "0.1.0"
+description = "Declarative, bounded-memory GGUF -> MLX-LM checkpoint streaming transcoder"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "gguf2mlx-stream contributors" }]
+keywords = ["gguf", "mlx", "mlx-lm", "quantization", "conversion", "llama.cpp"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.26",
+    "gguf>=0.10",
+    "pyyaml>=6.0",
+    "mlx>=0.29",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+loadtest = ["mlx-lm>=0.31"]
+
+[project.scripts]
+gguf2mlx-stream = "gguf2mlx_stream.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gguf2mlx-stream/gguf2mlx-stream"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gguf2mlx_stream"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "integration: optional local integration tests requiring real source GGUFs (deselected by default in CI)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
