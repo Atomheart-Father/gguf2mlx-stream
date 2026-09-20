@@ -26,7 +26,6 @@ from typing import Any, Callable, Mapping
 import numpy as np
 import mlx.core as mx
 
-from .config.schema import ArchConfig
 from .errors import ConversionError
 from .planner import ConversionPlan, PlannedJob
 from .quantize import quantize_weights

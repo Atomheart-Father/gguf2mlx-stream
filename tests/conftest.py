@@ -31,7 +31,7 @@ from typing import Mapping
 import numpy as np
 import pytest
 from gguf import GGUFWriter
-from gguf.constants import GGML_QUANT_SIZES, GGMLQuantizationType
+from gguf.constants import GGMLQuantizationType
 
 QK_K = 256
 

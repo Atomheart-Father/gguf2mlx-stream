@@ -18,7 +18,6 @@ import json
 import os
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from gguf2mlx_stream.cli import main as cli_main

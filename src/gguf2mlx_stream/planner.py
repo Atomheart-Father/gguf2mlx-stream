@@ -158,7 +158,7 @@ class ConversionPlan:
         lines.append(f"architecture : {a.id} (gguf_arch={a.gguf_arch})")
         lines.append(f"source       : {self.source.path}")
         lines.append(f"source arch  : {self.source.arch} | tensors: {len(self.source.tensors)}")
-        lines.append(f"dims         : " + ", ".join(f"{k}={v}" for k, v in self.dims.items()))
+        lines.append("dims         : " + ", ".join(f"{k}={v}" for k, v in self.dims.items()))
         lines.append("")
         lines.append(f"jobs ({len(self.jobs)}) — dest <- rule [source] :")
         for job in self.jobs:

@@ -2,7 +2,6 @@
 
 import numpy as np
 import pytest
-from gguf.constants import GGMLQuantizationType
 
 from gguf2mlx_stream.config.schema import arch_config_from_dict
 from gguf2mlx_stream.errors import PlanError

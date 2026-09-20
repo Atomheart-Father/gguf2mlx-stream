@@ -240,9 +240,8 @@ def _check_reference_structure(ref_dir: Path, report: list):
     assert a_log.shape == (32,) and np.isfinite(a_log).all()
     dt = get("language_model.model.layers.0.linear_attn.dt_bias")
     assert dt.shape == (32,)
-    packed, scales, biases = get("language_model.model.embed_tokens.weight"), \
-        get("language_model.model.embed_tokens.scales"), \
-        get("language_model.model.embed_tokens.biases")
+    packed, scales = get("language_model.model.embed_tokens.weight"), \
+        get("language_model.model.embed_tokens.scales")
     assert scales.shape == (248320, 64)   # 4096 / 64 groups
     # per group: 64 elems * bits / 32 = 2*bits u32; 64 groups per row
     bits = cfg["quantization"]["bits"]
