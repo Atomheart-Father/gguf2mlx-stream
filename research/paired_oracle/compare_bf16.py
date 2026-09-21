@@ -88,6 +88,17 @@ def _scalar_stats(a: mx.array, b: mx.array) -> dict:
     na = mx.sqrt(mx.sum(af * af))
     nb = mx.sqrt(mx.sum(bf * bf))
     cos = dot / (na * nb) if na > 0 and nb > 0 else float("nan")
+    # Semantic-equality views. Normalizing both sides to a common storage
+    # format separates *structural/transform* errors (which survive the cast)
+    # from storage-rounding artifacts (which do not):
+    # - after bf16 cast: reference-format view; f16-storage artifacts of our
+    #   side (subnormal flush of tiny values) remain visible.
+    # - after f16 cast: our-format view; when this is exact, the reference
+    #   carries no information our output lost.
+    abf = af.astype(mx.bfloat16).astype(mx.float32)
+    bbf = bf.astype(mx.bfloat16).astype(mx.float32)
+    a16 = af.astype(mx.float16).astype(mx.float32)
+    b16 = bf.astype(mx.float16).astype(mx.float32)
     return {
         "max_abs": float(mx.max(abs_diff)),
         "mean_abs": float(mx.mean(abs_diff)),
@@ -97,6 +108,11 @@ def _scalar_stats(a: mx.array, b: mx.array) -> dict:
         "nan_ref": int(mx.sum(mx.isnan(bf))),
         "inf_ours": int(mx.sum(mx.isinf(af))),
         "inf_ref": int(mx.sum(mx.isinf(bf))),
+        "equal_after_bf16_cast": bool(mx.array_equal(abf, bbf)),
+        "max_abs_after_bf16_cast": float(mx.max(mx.abs(abf - bbf))),
+        "equal_after_f16_cast": bool(mx.array_equal(a16, b16)),
+        "max_abs_after_f16_cast": float(mx.max(mx.abs(a16 - b16))),
+        "flushed_to_zero_ours": int(mx.sum((bf != 0) & (a16 == 0))),
     }
 
 
@@ -170,7 +186,10 @@ def write_md(report: dict, path: Path) -> None:
         f"- ours: `{report['ours_dir']}`",
         f"- reference: `{report['reference_dir']}`",
         f"- matched tensors: **{s['matched']}** "
-        f"(bit-exact: **{s['bit_exact']}**)",
+        f"(bit-exact: **{s['bit_exact']}**, "
+        f"equal after bf16 cast: **{s['equal_after_bf16_cast']}**, "
+        f"equal after f16 cast: **{s['equal_after_f16_cast']}**, "
+        f"values our f16 flushed to zero: {s['values_flushed_to_zero_ours']})",
         f"- unmatched reference: {s['unmatched_reference']}",
         f"- unmatched ours: {s['unmatched_ours']}",
         f"- shape mismatches: {s['shape_mismatch']}",
@@ -226,12 +245,26 @@ def main(argv: list[str] | None = None) -> int:
                   f"{tensors[ref_name]['shape_ours']} vs {tensors[ref_name]['shape_ref']}")
 
     bit_exact = sum(1 for r in tensors.values() if r.get("bit_exact"))
+    eq_bf16 = sum(
+        1 for r in tensors.values()
+        if r.get("status") == "ok" and r.get("equal_after_bf16_cast")
+    )
+    eq_f16 = sum(
+        1 for r in tensors.values()
+        if r.get("status") == "ok" and r.get("equal_after_f16_cast")
+    )
+    flushed = sum(
+        int(r.get("flushed_to_zero_ours", 0)) for r in tensors.values()
+    )
     report = {
         "ours_dir": str(ours_dir),
         "reference_dir": str(ref_dir),
         "summary": {
             "matched": len(mapping),
             "bit_exact": bit_exact,
+            "equal_after_bf16_cast": eq_bf16,
+            "equal_after_f16_cast": eq_f16,
+            "values_flushed_to_zero_ours": flushed,
             "unmatched_reference": unmatched_ref,
             "unmatched_ours": unmatched_ours,
             "shape_mismatch": sum(
