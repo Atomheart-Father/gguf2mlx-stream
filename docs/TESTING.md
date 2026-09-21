@@ -160,7 +160,8 @@ inspect → validate-config → dry-run → convert → structural
   with its own model directory — it never touches a user's running oMLX
   instance — then checks discovery of all converted outputs and
   `/v1/chat/completions` for the per-family probe models.
-* **Reports** land in `reports/integration-matrix.{json,md}` (committed);
+* **Reports** land in `reports/integration-matrix.{json,md}` (generated
+  locally; run artifacts are git-ignored, not committed);
   per-variant convert statistics are written alongside the fixtures.
 
 Latest published run: 8/8 variants PASS (4 families × Q4_K_M + Q6_K),

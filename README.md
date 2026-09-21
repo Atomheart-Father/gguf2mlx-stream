@@ -85,8 +85,9 @@ Measured on Apple M4 Pro (24 GB), mlx-lm 0.31.3:
 | Gemma-3-270M | Q6_K | 0.26 | 0.20 | 3.54 | 56.5 |
 
 Numbers come from the converter's own `--report-json` statistics
-(reports/integration-matrix.{json,md}; per-variant run reports under the
-integration working directory). Peak RSS includes the mmap'd source page
+(regenerated locally by `scripts/run_integration_matrix.py` into
+`reports/` and the integration working directory; run artifacts are not
+committed). Peak RSS includes the mmap'd source page
 cache, which the OS can evict. See docs/TESTING.md for how the matrix is
 reproduced.
 
