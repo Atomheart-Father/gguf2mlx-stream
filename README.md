@@ -144,6 +144,12 @@ gguf2mlx-stream convert ~/models/qwen.gguf \
   --source-config ~/models/qwen-hf/config.json \
   --tokenizer-source ~/models/qwen-hf
 
+# convert with target-bits auto-selection (the default): the byte-weighted
+# dominant source quant family picks the global MLX bit magnitude
+# (IQ2->2, IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); sources whose dominant family
+# has no MLX affine equivalent (Q5/IQ1/TQ) fail with an explicit error
+gguf2mlx-stream convert ~/models/iq3-model.gguf --output ./out-3bit-auto
+
 # verify output against source: every quantized tensor is numerically
 # recomputed and compared; shapes, finiteness, index/shard parity, and the
 # output's recorded quantization parameters are all checked
@@ -156,6 +162,17 @@ path, or nothing at all — when omitted, the config is auto-detected from the
 GGUF's `general.architecture` if exactly one built-in config accepts it.
 `--dry-run` prints the full plan (every job, drop, and estimate) so mapping
 mistakes are caught before any weights move.
+
+`--bits` defaults to `auto`: the target bit magnitude is derived from a
+byte-weighted histogram of the source quantization families over the tensors
+the plan will quantize, and the evidence (histogram, dominant type, reason)
+is recorded in the dry-run view, `--report-json`, and the output
+`config.json` under `quantization_selection`. The MLX output is one global
+bit magnitude plus the config's declared per-rule overrides — mixed source
+quantization is not replicated per tensor, and an unmappable dominant family
+refuses to convert rather than guessing. Note that "source IQ3" and "MLX
+affine 3-bit" are the same *target bit magnitude*, not bit-for-bit
+equivalent encodings.
 
 The output contract is `mlx_lm.load(path)`. A conversion fails
 transactionally — never replacing an existing output — when the tokenizer

@@ -1,0 +1,50 @@
+{
+  "title": "ARC-Challenge 100q: JoyFox Qwen3.6-35B-A3B source (i1-IQ3_M GGUF) vs MLX 3-bit (--bits auto)",
+  "source_side": "src",
+  "gate": {
+    "max_clean_accuracy_drop_pp": 5.0,
+    "max_anomaly_rate_increase_pp": 2.0
+  },
+  "sides": {
+    "src": {
+      "n": 100,
+      "accuracy": 0.86,
+      "clean_accuracy": 0.86,
+      "anomaly_rate": 0.0,
+      "anomaly_breakdown": {},
+      "anomaly_events": 0,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 1.676,
+      "total_gen_s": 190.1
+    },
+    "mlx-3bit": {
+      "n": 100,
+      "accuracy": 0.76,
+      "clean_accuracy": 0.74,
+      "anomaly_rate": 0.03,
+      "anomaly_breakdown": {
+        "repetition_loop": 3
+      },
+      "anomaly_events": 3,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 2.994,
+      "total_gen_s": 254.9,
+      "gate": {
+        "clean_accuracy_gap_pp": 12.0,
+        "anomaly_rate_gap_pp": 3.0,
+        "pass": false
+      }
+    }
+  },
+  "conversion_meta": {
+    "mlx-3bit": {
+      "output_gib": 14.14,
+      "peak_rss_gib": 12.06,
+      "elapsed_s": 446.3
+    }
+  },
+  "verdicts": {
+    "src": "source (reference)",
+    "mlx-3bit": "FAIL gate — experimental result only, not a recommended configuration"
+  }
+}
