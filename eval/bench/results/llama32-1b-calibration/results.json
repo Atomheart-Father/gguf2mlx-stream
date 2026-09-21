@@ -1,0 +1,99 @@
+{
+  "title": "ARC-Challenge 100q calibration: Llama-3.2-1B-Instruct source (Q4_K_M GGUF) vs MLX 3/4/6-bit candidates",
+  "source_side": "src",
+  "gate": {
+    "max_clean_accuracy_drop_pp": 5.0,
+    "max_anomaly_rate_increase_pp": 2.0
+  },
+  "sides": {
+    "src": {
+      "n": 100,
+      "accuracy": 0.48,
+      "clean_accuracy": 0.48,
+      "anomaly_rate": 0.0,
+      "anomaly_breakdown": {},
+      "anomaly_events": 0,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.514,
+      "total_gen_s": 52.2
+    },
+    "3bit": {
+      "n": 100,
+      "accuracy": 0.33,
+      "clean_accuracy": 0.29,
+      "anomaly_rate": 0.08,
+      "anomaly_breakdown": {
+        "repetition_loop": 8
+      },
+      "anomaly_events": 8,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.399,
+      "total_gen_s": 40.4,
+      "gate": {
+        "clean_accuracy_gap_pp": 19.0,
+        "anomaly_rate_gap_pp": 8.0,
+        "pass": false
+      }
+    },
+    "4bit": {
+      "n": 100,
+      "accuracy": 0.48,
+      "clean_accuracy": 0.47,
+      "anomaly_rate": 0.01,
+      "anomaly_breakdown": {
+        "repetition_loop": 1
+      },
+      "anomaly_events": 1,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.413,
+      "total_gen_s": 37.0,
+      "gate": {
+        "clean_accuracy_gap_pp": 1.0,
+        "anomaly_rate_gap_pp": 1.0,
+        "pass": true
+      }
+    },
+    "6bit": {
+      "n": 100,
+      "accuracy": 0.55,
+      "clean_accuracy": 0.55,
+      "anomaly_rate": 0.0,
+      "anomaly_breakdown": {},
+      "anomaly_events": 0,
+      "letter_only_compliance": 0.02,
+      "median_gen_s": 0.502,
+      "total_gen_s": 44.7,
+      "gate": {
+        "clean_accuracy_gap_pp": -7.0,
+        "anomaly_rate_gap_pp": 0.0,
+        "pass": true
+      }
+    }
+  },
+  "conversion_meta": {
+    "3bit": {
+      "output_gib": 0.5,
+      "peak_rss_gib": 3.87,
+      "elapsed_s": 37.2,
+      "note": null
+    },
+    "4bit": {
+      "output_gib": 0.65,
+      "peak_rss_gib": null,
+      "elapsed_s": null,
+      "note": "converted before report-json metrics existed; conversion RSS/time not recorded"
+    },
+    "6bit": {
+      "output_gib": 0.94,
+      "peak_rss_gib": 4.08,
+      "elapsed_s": 35.5,
+      "note": null
+    }
+  },
+  "verdicts": {
+    "src": "source (reference)",
+    "3bit": "FAIL gate — experimental result only, not a recommended configuration",
+    "4bit": "PASS gate",
+    "6bit": "PASS gate"
+  }
+}

@@ -266,12 +266,17 @@ gguf2mlx-stream convert model.gguf --arch-config cfg.yaml --output out/ [options
 gguf2mlx-stream verify model.gguf out/ --arch-config cfg.yaml [--bits N] [...]
 ```
 
-`convert` options: `--bits {2,3,4,6,8}`, `--group-size`, `--mode affine`,
-`--no-quantize` (float16 weights), `--source-config`, `--tokenizer-source`,
-`--max-shard-gb`, `--chunk-mb`, `--report-json`, `-q/--quiet`, and
-`--dry-run` — the dry-run/plan view prints every job, drop, unused rule,
-unmatched tensor, and the estimated output size without touching tensor
-data.
+`convert` options: `--bits auto|{2,3,4,6,8}` (default `auto`: the global
+target bit magnitude is derived from the byte-weighted dominant source quant
+family — IQ2→2, IQ3→3, IQ4/Q4→4, Q6→6, Q8→8; an unmappable dominant family
+such as Q5/IQ1/TQ fails with an explicit error instead of guessing, and the
+selection evidence is printed and recorded in `--report-json` and the output
+`config.json` under `quantization_selection`), `--group-size`,
+`--mode affine`, `--no-quantize` (float16 weights), `--source-config`,
+`--tokenizer-source`, `--max-shard-gb`, `--chunk-mb`, `--report-json`,
+`-q/--quiet`, and `--dry-run` — the dry-run/plan view prints every job,
+drop, unused rule, unmatched tensor, the target-bits selection, and the
+estimated output size without touching tensor data.
 
 * `validate-config` runs the full static schema validation plus, when a GGUF
   is supplied to `convert --dry-run`, the source-dependent resolution.

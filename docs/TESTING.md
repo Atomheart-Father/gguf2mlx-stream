@@ -168,13 +168,21 @@ Latest published run: 8/8 variants PASS (4 families × Q4_K_M + Q6_K),
 all outputs discovered by the isolated oMLX server.
 
 Large-model one-off regression (`qwen35moe`, same pipeline stages, run
-manually outside the pinned matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive
-i1-IQ3_M → MLX 4-bit — 733 planned jobs, 20 dropped MTP tensors, 5 shards
-/ 18.17 GiB output, peak RSS 16.48 GiB, verify ALL OK (733 numeric / 733
-shape / 1757 finite), `mlx_lm.load()` + coherent temp-0 generation,
-llama.cpp source-side semantic agreement. This is the reference run for
-the N-D (3-D expert) quantization and per-rule bits/group_size override
-paths.
+manually outside the pinned matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive.
+**The historical 4-bit run below is superseded history — wrong target for
+an IQ3-dominant source, not a recommended result.** It remains the
+reference run for the N-D (3-D expert) quantization and per-rule
+bits/group_size override paths: 733 planned jobs, 20 dropped MTP tensors,
+5 shards / 18.17 GiB output, peak RSS 16.48 GiB, verify ALL OK (733
+numeric / 733 shape / 1757 finite), `mlx_lm.load()` + coherent temp-0
+generation.
+
+The current JoyFox conversion is a **3-bit `--bits auto` run** (14.14 GiB /
+4 shards, peak RSS 12.06 GiB, verify ALL OK) whose capability-gate verdict
+is **FAIL — experimental only, never a recommendation**: the ARC-Challenge
+100q gate and the Llama-1B 3-bit calibration both reject a 3-bit target
+for this source class (see `eval/bench/results/`). Auto-derived 3-bit for
+qwen35moe + IQ3 sources is blocked behind `--allow-experimental`.
 
 ## H. Clean-install acceptance (release gate)
 

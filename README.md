@@ -94,18 +94,25 @@ reproduced.
 
 Additional large-model regression (`qwen35moe`, run outside the pinned
 matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention
-+ 256-expert MoE), source GGUF i1-IQ3_M → MLX 4-bit:
++ 256-expert MoE). **The historical 4-bit conversion below is superseded
+history — it used the wrong target for an IQ3-dominant source and is not a
+recommended result:**
 
 | source GiB | output GiB (shards) | peak RSS GiB | convert s | verify |
 |---|---|---|---|---|
 | 14.72 | 18.17 (5) | 16.48 | 428 | ALL OK (733 numeric / 733 shape / 1757 finite) |
 
-Output loaded with `mlx_lm.load()`, produced coherent temp-0 chat
-generations through the tokenizer chat template, and shows semantic
-agreement with `llama-completion` output from the source GGUF on spot
-prompts. The same run exercised N-D (3-D expert) quantization with
-chunk-safe streaming and config-declared per-rule 8-bit overrides for the
-MoE router and shared-expert gate.
+That run exercised N-D (3-D expert) quantization with chunk-safe streaming
+and config-declared per-rule 8-bit overrides for the MoE router and
+shared-expert gate, and loaded/produced coherent chat generations.
+
+The current conversion of this source is the **3-bit `--bits auto` run**
+(14.14 GiB / 4 shards, verify ALL OK). Its capability-gate result is
+**FAIL — experimental only, NOT a recommended configuration**: the
+ARC-Challenge gate and the small-model 3-bit calibration both rejected a
+3-bit target for this source class (see `eval/bench/results/`). Converting
+qwen35moe + IQ3 sources at auto-derived 3 bits requires
+`--allow-experimental` until a calibrated group size passes the gate.
 
 ## Scope boundaries
 
@@ -144,6 +151,12 @@ gguf2mlx-stream convert ~/models/qwen.gguf \
   --source-config ~/models/qwen-hf/config.json \
   --tokenizer-source ~/models/qwen-hf
 
+# convert with target-bits auto-selection (the default): the byte-weighted
+# dominant source quant family picks the global MLX bit magnitude
+# (IQ2->2, IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); sources whose dominant family
+# has no MLX affine equivalent (Q5/IQ1/TQ) fail with an explicit error
+gguf2mlx-stream convert ~/models/iq3-model.gguf --output ./out-3bit-auto
+
 # verify output against source: every quantized tensor is numerically
 # recomputed and compared; shapes, finiteness, index/shard parity, and the
 # output's recorded quantization parameters are all checked
@@ -156,6 +169,17 @@ path, or nothing at all — when omitted, the config is auto-detected from the
 GGUF's `general.architecture` if exactly one built-in config accepts it.
 `--dry-run` prints the full plan (every job, drop, and estimate) so mapping
 mistakes are caught before any weights move.
+
+`--bits` defaults to `auto`: the target bit magnitude is derived from a
+byte-weighted histogram of the source quantization families over the tensors
+the plan will quantize, and the evidence (histogram, dominant type, reason)
+is recorded in the dry-run view, `--report-json`, and the output
+`config.json` under `quantization_selection`. The MLX output is one global
+bit magnitude plus the config's declared per-rule overrides — mixed source
+quantization is not replicated per tensor, and an unmappable dominant family
+refuses to convert rather than guessing. Note that "source IQ3" and "MLX
+affine 3-bit" are the same *target bit magnitude*, not bit-for-bit
+equivalent encodings.
 
 The output contract is `mlx_lm.load(path)`. A conversion fails
 transactionally — never replacing an existing output — when the tokenizer

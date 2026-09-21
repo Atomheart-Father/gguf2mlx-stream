@@ -314,3 +314,47 @@ def test_full_pipeline(tmp_path):
         "--arch-config", QWEN35_YAML, "--bits", "4",
     ])
     assert rc == 0, "verify failed"
+
+
+def test_convert_bits_auto_resolves_dominant_family(tmp_path):
+    """--bits auto (default) resolves the global target from the byte-weighted
+    source quant histogram; the evidence lands in the output config.json."""
+    gguf_path, _, _, _ = build_fixture_gguf(tmp_path)
+    out_dir = tmp_path / "out-auto"
+
+    rc = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(out_dir),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-auto"),
+        "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc == 0, "auto-bits conversion failed"
+
+    cfg = json.loads((out_dir / "config.json").read_text())
+    # fixture histogram: token_embd Q6_K (107520 B) outweighs output Q4_K
+    # (73728 B) -> dominant family Q6_K -> global target 6 bits
+    assert cfg["quantization"]["bits"] == 6
+    sel = cfg["quantization_selection"]
+    assert sel["requested"] == "auto"
+    assert sel["target_bits"] == 6
+    assert sel["dominant_source_type"] == "Q6_K"
+    assert sel["source_quant_histogram_bytes"] == {"Q6_K": 107520, "Q4_K": 73728}
+    assert "90.1%" not in sel["reason"] and "auto" in sel["reason"]
+
+    # an explicit --bits must always win and be recorded as explicit
+    out_dir2 = tmp_path / "out-explicit"
+    rc = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(out_dir2),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-explicit"),
+        "--bits", "4", "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc == 0
+    cfg2 = json.loads((out_dir2 / "config.json").read_text())
+    assert cfg2["quantization"]["bits"] == 4
+    assert cfg2["quantization_selection"]["requested"] == "4"
+    assert cfg2["quantization_selection"]["target_bits"] == 4

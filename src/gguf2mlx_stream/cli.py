@@ -27,9 +27,43 @@ from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
 from .constants import SUPPORTED_BITS
+from .quant_select import BitsDecision, experimental_guard, select_target_bits
 from .runner import ConversionRunner, QuantSettings
 from .source.gguf import GGUFSource
 from .verifier import load_test, verify_conversion
+
+
+def _bits_arg(value: str) -> str | int:
+    """--bits accepts 'auto' (default) or one of SUPPORTED_BITS."""
+    if value == "auto":
+        return "auto"
+    try:
+        bits = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--bits must be 'auto' or one of {list(SUPPORTED_BITS)}, got {value!r}"
+        )
+    if bits not in SUPPORTED_BITS:
+        raise argparse.ArgumentTypeError(
+            f"--bits must be 'auto' or one of {list(SUPPORTED_BITS)}, got {value!r}"
+        )
+    return bits
+
+
+def _print_bits_decision(decision: BitsDecision, log) -> None:
+    log(f"[bits] target = {decision.bits if decision.bits else 'float16'} "
+        f"({decision.requested})")
+    log(f"[bits] {decision.reason}")
+    if decision.histogram_bytes:
+        total = sum(decision.histogram_bytes.values())
+        parts = ", ".join(
+            f"{name}={nbytes / 2**20:.1f}MiB ({nbytes / total * 100:.1f}%)"
+            if total else f"{name}={nbytes}B"
+            for name, nbytes in sorted(
+                decision.histogram_bytes.items(), key=lambda kv: -kv[1]
+            )
+        )
+        log(f"[bits] source quant histogram: {parts}")
 
 
 def _add_common_convert_args(p: argparse.ArgumentParser) -> None:
@@ -63,6 +97,9 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     print(f"arch        : {s['architecture']}")
     print(f"tensors     : {s['n_tensors']} ({s['total_tensor_bytes'] / 2**30:.2f} GiB)")
     print("quant types : " + ", ".join(f"{k}×{v}" for k, v in s["tensors_by_type"].items()))
+    print("bytes/type  : " + ", ".join(
+        f"{k}={v / 2**20:.1f}MiB" for k, v in s["bytes_by_type"].items()
+    ))
     if args.metadata:
         print(source.dump_metadata_json())
     if args.tensors:
@@ -128,12 +165,33 @@ def cmd_convert(args: argparse.Namespace) -> int:
     tokenizer_source = args.tokenizer_source or os.path.dirname(os.path.abspath(args.gguf))
 
     plan = plan_conversion(config, source, ref_config=ref)
+    decision = select_target_bits(plan, None if args.no_quantize else args.bits)
+    bits_record = decision.as_record()
+    try:
+        guard = experimental_guard(
+            plan, decision, allow_experimental=bool(args.allow_experimental)
+        )
+    except Gguf2MlxError as exc:
+        if args.dry_run:
+            print(f"[bits] EXPERIMENTAL GUARD (blocks conversion): {exc}")
+            guard = None
+        else:
+            raise
+    if guard:
+        bits_record.update(guard)
+        if not args.quiet:
+            print("[bits] EXPERIMENTAL: converting a gate-failed configuration "
+                  "by explicit request; recorded in the output config.json")
+    if not args.quiet:
+        _print_bits_decision(decision, print)
+        if args.dry_run:
+            print("[bits] dry-run: no conversion performed")
     if args.dry_run:
         print("\n".join(plan.summary_lines()))
         return 0
 
     quant = QuantSettings(
-        bits=None if args.no_quantize else args.bits,
+        bits=None if args.no_quantize else decision.bits,
         group_size=args.group_size,
         mode=args.mode,
     )
@@ -147,6 +205,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
         chunk_elements=args.chunk_mb * 2**20 // 4,
         log=print if not args.quiet else (lambda _msg: None),
         max_shard_bytes=int(args.max_shard_gb * 2**30) if args.max_shard_gb else None,
+        bits_record=bits_record,
     )
     stats = runner.run(overwrite=args.overwrite)
     if args.report_json:
@@ -161,6 +220,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
                     "estimated_output_bytes": plan.est_output_bytes,
                     "n_jobs": len(plan.jobs),
                     "n_dropped": len(plan.dropped),
+                    "target_bits": decision.bits,
+                    "target_bits_selection": decision.as_record(),
                     "dims": dict(plan.dims),
                 },
                 f,
@@ -241,7 +302,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("convert", help="convert GGUF to an MLX-LM checkpoint")
     _add_common_convert_args(p)
     p.add_argument("--output", "-o", required=True, help="output model directory")
-    p.add_argument("--bits", type=int, default=4, choices=SUPPORTED_BITS)
+    p.add_argument(
+        "--bits",
+        type=_bits_arg,
+        default="auto",
+        help="target quantization bits: 'auto' (default) derives the global bit "
+        "magnitude from the byte-weighted source quant histogram (IQ2->2, "
+        "IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); explicit 2/3/4/6/8 always wins; "
+        "sources with no mappable dominant family require an explicit value",
+    )
     p.add_argument("--group-size", type=int, default=64)
     p.add_argument("--mode", default="affine", choices=("affine",))
     p.add_argument("--no-quantize", action="store_true", help="write float16 weights")
@@ -250,6 +319,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override shard size limit from the config")
     p.add_argument("--overwrite", action="store_true",
                    help="replace an existing non-empty output directory")
+    p.add_argument("--allow-experimental", action="store_true",
+                   help="permit auto-derived target-bits configurations that "
+                        "failed the capability gate (e.g. 3-bit for "
+                        "qwen35moe + IQ3 sources); the experimental status "
+                        "is recorded in the output config.json")
     p.add_argument("--chunk-mb", type=int, default=512,
                    help="dequantization chunk size in MiB (default 512)")
     p.add_argument("--quiet", "-q", action="store_true")

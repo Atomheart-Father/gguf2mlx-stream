@@ -1,0 +1,14 @@
+{
+  "dataset_id": "allenai/ai2_arc",
+  "config": "ARC-Challenge",
+  "split": "validation",
+  "revision": "210d026faf9955653af8916fad021475a3f00453",
+  "seed": 20260921,
+  "n_subset": 100,
+  "selection": "sorted by id, random.Random(seed).shuffle, first n",
+  "prompt_template": "The following is a multiple choice question. Answer with only the letter of the correct option.\n\nQuestion: {question}\n{choices}\nAnswer:",
+  "subset_sha256": "eb947cff569b65f05f19264a3521641da3be240313291be85f6d168fc2696d7a",
+  "license": "CC-BY-SA-4.0",
+  "attribution": "AI2 ARC (Allen Institute for AI), https://allenai.org/data/arc, license CC-BY-SA-4.0; accessed via the HF dataset allenai/ai2_arc at revision 210d026faf9955653af8916fad021475a3f00453",
+  "pool_size": 299
+}

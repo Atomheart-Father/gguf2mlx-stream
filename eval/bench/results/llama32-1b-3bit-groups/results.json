@@ -1,0 +1,151 @@
+{
+  "title": "ARC-Challenge 100q 3-bit calibration: Llama-3.2-1B-Instruct Q4_K_M source vs MLX 3-bit (group sizes 32/64/128) + 4/6-bit references",
+  "source_side": "src",
+  "recorded_max_tokens": 64,
+  "recorded_temp": 0.0,
+  "gate": {
+    "max_clean_accuracy_drop_pp": 5.0,
+    "max_anomaly_rate_increase_pp": 2.0
+  },
+  "sides": {
+    "src": {
+      "n": 100,
+      "accuracy": 0.48,
+      "clean_accuracy": 0.48,
+      "anomaly_rate": 0.0,
+      "anomaly_breakdown": {},
+      "anomaly_events": 0,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.514,
+      "total_gen_s": 52.2
+    },
+    "3bit-g32": {
+      "n": 100,
+      "accuracy": 0.33,
+      "clean_accuracy": 0.31,
+      "anomaly_rate": 0.03,
+      "anomaly_breakdown": {
+        "repetition_loop": 3
+      },
+      "anomaly_events": 3,
+      "letter_only_compliance": 0.01,
+      "median_gen_s": 0.432,
+      "total_gen_s": 42.8,
+      "gate": {
+        "clean_accuracy_gap_pp": 17.0,
+        "anomaly_rate_gap_pp": 3.0,
+        "pass": false
+      }
+    },
+    "3bit-g64": {
+      "n": 100,
+      "accuracy": 0.33,
+      "clean_accuracy": 0.29,
+      "anomaly_rate": 0.08,
+      "anomaly_breakdown": {
+        "repetition_loop": 8
+      },
+      "anomaly_events": 8,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.399,
+      "total_gen_s": 40.4,
+      "gate": {
+        "clean_accuracy_gap_pp": 19.0,
+        "anomaly_rate_gap_pp": 8.0,
+        "pass": false
+      }
+    },
+    "3bit-g128": {
+      "n": 100,
+      "accuracy": 0.32,
+      "clean_accuracy": 0.31,
+      "anomaly_rate": 0.09,
+      "anomaly_breakdown": {
+        "repetition_loop": 8,
+        "no_letter": 1,
+        "truncated": 1
+      },
+      "anomaly_events": 10,
+      "letter_only_compliance": 0.02,
+      "median_gen_s": 0.332,
+      "total_gen_s": 32.1,
+      "gate": {
+        "clean_accuracy_gap_pp": 17.0,
+        "anomaly_rate_gap_pp": 9.0,
+        "pass": false
+      }
+    },
+    "4bit-g64": {
+      "n": 100,
+      "accuracy": 0.48,
+      "clean_accuracy": 0.47,
+      "anomaly_rate": 0.01,
+      "anomaly_breakdown": {
+        "repetition_loop": 1
+      },
+      "anomaly_events": 1,
+      "letter_only_compliance": 0.0,
+      "median_gen_s": 0.413,
+      "total_gen_s": 37.0,
+      "gate": {
+        "clean_accuracy_gap_pp": 1.0,
+        "anomaly_rate_gap_pp": 1.0,
+        "pass": true
+      }
+    },
+    "6bit-g64": {
+      "n": 100,
+      "accuracy": 0.55,
+      "clean_accuracy": 0.55,
+      "anomaly_rate": 0.0,
+      "anomaly_breakdown": {},
+      "anomaly_events": 0,
+      "letter_only_compliance": 0.02,
+      "median_gen_s": 0.502,
+      "total_gen_s": 44.7,
+      "gate": {
+        "clean_accuracy_gap_pp": -7.0,
+        "anomaly_rate_gap_pp": 0.0,
+        "pass": true
+      }
+    }
+  },
+  "conversion_meta": {
+    "3bit-g32": {
+      "output_gib": 0.58,
+      "peak_rss_gib": 4.12,
+      "elapsed_s": 35.3
+    },
+    "3bit-g64": {
+      "output_gib": 0.5,
+      "peak_rss_gib": 3.87,
+      "elapsed_s": 37.2,
+      "note": null
+    },
+    "3bit-g128": {
+      "output_gib": 0.47,
+      "peak_rss_gib": 4.08,
+      "elapsed_s": 33.4
+    },
+    "4bit-g64": {
+      "output_gib": 0.65,
+      "peak_rss_gib": null,
+      "elapsed_s": null,
+      "note": "converted before report-json metrics existed; conversion RSS/time not recorded"
+    },
+    "6bit-g64": {
+      "output_gib": 0.94,
+      "peak_rss_gib": 4.08,
+      "elapsed_s": 35.5,
+      "note": null
+    }
+  },
+  "verdicts": {
+    "src": "source (reference)",
+    "3bit-g32": "FAIL gate — experimental result only, not a recommended configuration",
+    "3bit-g64": "FAIL gate — experimental result only, not a recommended configuration",
+    "3bit-g128": "FAIL gate — experimental result only, not a recommended configuration",
+    "4bit-g64": "PASS gate",
+    "6bit-g64": "PASS gate"
+  }
+}

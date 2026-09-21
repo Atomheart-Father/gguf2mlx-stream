@@ -225,14 +225,17 @@ class GGUFSource:
     def summary(self) -> dict[str, Any]:
         total_bytes = sum(t.n_bytes for t in self.tensors.values())
         by_type: dict[str, int] = {}
+        bytes_by_type: dict[str, int] = {}
         for t in self.tensors.values():
             by_type[t.qtype.name] = by_type.get(t.qtype.name, 0) + 1
+            bytes_by_type[t.qtype.name] = bytes_by_type.get(t.qtype.name, 0) + t.n_bytes
         return {
             "path": self.path,
             "architecture": self.metadata.get("general.architecture"),
             "n_tensors": len(self.tensors),
             "total_tensor_bytes": total_bytes,
             "tensors_by_type": dict(sorted(by_type.items())),
+            "bytes_by_type": dict(sorted(bytes_by_type.items())),
         }
 
     def dump_metadata_json(self) -> str:

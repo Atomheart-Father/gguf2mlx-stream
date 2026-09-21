@@ -92,6 +92,7 @@ class ConversionRunner:
         check_finite: bool = True,
         log: Callable[[str], None] = print,
         max_shard_bytes: int | None = None,
+        bits_record: Mapping[str, Any] | None = None,
     ):
         self.plan = plan
         self.max_shard_bytes = (
@@ -105,6 +106,7 @@ class ConversionRunner:
         self.chunk_elements = chunk_elements
         self.check_finite = check_finite
         self.log = log
+        self.bits_record = dict(bits_record) if bits_record else None
         self.stats: RunStats | None = None
 
     # ---------- job execution ----------
@@ -413,6 +415,11 @@ class ConversionRunner:
                 "output config.json is missing required architecture field(s) "
                 f"(broken or over-permissive config): {missing}"
             )
+        if self.quant.enabled:
+            # evidence block: how the target bits were chosen, the source
+            # quant histogram backing that choice, and the final target
+            # (top-level sibling of "quantization"; mlx-lm ignores unknown keys)
+            cfg["quantization_selection"] = dict(self.bits_record or {})
         with open(os.path.join(out_dir, "config.json"), "w") as f:
             json.dump(cfg, f, indent=2)
 
