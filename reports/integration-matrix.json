@@ -1,0 +1,1412 @@
+{
+  "generated_at": "2026-09-21 04:27:04",
+  "total_wall_s": 725.3,
+  "host": "Apple M4 Pro, 24 GB unified memory",
+  "mlx_version": "0.31.2",
+  "mlx_lm_version": "0.31.3",
+  "llama_cpp": "version: 0.4.1 (build 10964, commit b29c606e2)",
+  "entries": {
+    "qwen35_08b:Q4_K_M": {
+      "family": "Qwen3.5 hybrid (GDN + full attention)",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/Qwen3.5-0.8B-GGUF",
+        "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+        "file": "Qwen3.5-0.8B-Q4_K_M.gguf",
+        "sha256": "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
+        "size_bytes": 532517120
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "qwen35",
+        "n_tensors": 320,
+        "source_bytes": 532517120,
+        "metadata": {
+          "GGUF.kv_count": 46,
+          "GGUF.tensor_count": 320,
+          "GGUF.version": 3,
+          "quantize.imatrix.chunks_count": 80,
+          "quantize.imatrix.dataset": "unsloth_calibration_Qwen3.5-0.8B.txt",
+          "quantize.imatrix.entries_count": 186,
+          "quantize.imatrix.file": "Qwen3.5-0.8B-GGUF/imatrix_unsloth.gguf",
+          "qwen35.attention.head_count": 8,
+          "qwen35.attention.head_count_kv": 2,
+          "qwen35.attention.key_length": 256,
+          "qwen35.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "qwen35.attention.value_length": 256,
+          "qwen35.block_count": 24,
+          "qwen35.context_length": 262144,
+          "qwen35.embedding_length": 1024,
+          "qwen35.feed_forward_length": 3584,
+          "qwen35.full_attention_interval": 4,
+          "qwen35.rope.dimension_count": 64,
+          "qwen35.rope.dimension_sections": "<array:INT32>",
+          "qwen35.rope.freq_base": 10000000.0,
+          "qwen35.ssm.conv_kernel": 4,
+          "qwen35.ssm.group_count": 16,
+          "qwen35.ssm.inner_size": 2048,
+          "qwen35.ssm.state_size": 128,
+          "qwen35.ssm.time_step_rank": 16
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 4.8,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 90.4,
+        "peak_rss_gib": 4.217987060546875,
+        "n_jobs": 320,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 1024,
+          "total_blocks": 24,
+          "nextn_predict_layers": 0,
+          "n_layers": 24,
+          "vocab_size": 248320,
+          "n_heads": 8,
+          "n_kv_heads": 2,
+          "head_dim": 256,
+          "intermediate_size": 3584,
+          "linear_num_key_heads": 16,
+          "linear_key_head_dim": 128,
+          "linear_num_value_heads": 16,
+          "linear_value_head_dim": 128,
+          "linear_conv_kernel_dim": 4,
+          "full_attention_interval": 4,
+          "key_dim": 2048,
+          "value_dim": 2048,
+          "conv_dim": 6144,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 10000000.0,
+          "rope_dim": 64
+        },
+        "output_bytes": 424934656,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 694,
+        "n_shards": 1,
+        "index_total_size": 424934656,
+        "missing_files": [],
+        "model_type": "qwen3_5",
+        "quantization": {
+          "bits": 4,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 8.9,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 6.3,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 564,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"The capital of France is?\"\n    *   Constraint: \"Answer with just the city name.\"\n    *   Goal: Provide the capital city of France.\n\n2.  **Retrieve Knowledge:**\n    *   What is the capital of France?\n    *   Common knowledge: Paris.\n    *   Is there any other capital? No, Paris is the capital.\n    *   Is there any other capital? No."
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 384,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Input: \"17 * 23 = ? Answer with just the number.\"\n    *   Task: Calculate the product of 17 and 23.\n    *   Constraint: \"Answer with just the number.\"\n\n2.  **Perform the Calculation:**\n    *   17 * 23\n    *   10 * 23 = 230\n    *   7 * 23 = 161\n    *   230 + 161 = 391\n    *   Alternatively:\n        *   17 * 23\n        *   10 * "
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 616,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "Here's a thinking process that leads to the suggested response:\n\n1.  **Analyze the Request:**\n    *   **Task:** Write one sentence about the ocean.\n    *   **Goal:** Provide a concise, accurate, and evocative sentence that captures the essence of the ocean.\n    *   **Context:** The user wants a simple answer, but the prompt is open-ended. I need to generate a good response that fits the \"one sente"
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is the capital of the country.\nThe capital of France is the capital of the country.\nThe capital of France is"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 391\n17 * 24 = 408\n17 * 25 ="
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nassistant\n<think>\n\n</think>\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": false,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nassistant\n<think>\n\n</think>\n\n529"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nassistant\n<think>\n\n</think>\n\nThe ocean is a vast, living, breathing, and constantly shifting sea that defines our shared home."
+          }
+        ]
+      }
+    },
+    "qwen35_08b:Q6_K": {
+      "family": "Qwen3.5 hybrid (GDN + full attention)",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/Qwen3.5-0.8B-GGUF",
+        "revision": "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0",
+        "file": "Qwen3.5-0.8B-Q6_K.gguf",
+        "sha256": "8408c5c222111cec253682b49eece2a02ed641ded68490001ec4ee160e71098e",
+        "size_bytes": 639029504
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "qwen35",
+        "n_tensors": 320,
+        "source_bytes": 639029504,
+        "metadata": {
+          "GGUF.kv_count": 46,
+          "GGUF.tensor_count": 320,
+          "GGUF.version": 3,
+          "quantize.imatrix.chunks_count": 80,
+          "quantize.imatrix.dataset": "unsloth_calibration_Qwen3.5-0.8B.txt",
+          "quantize.imatrix.entries_count": 186,
+          "quantize.imatrix.file": "Qwen3.5-0.8B-GGUF/imatrix_unsloth.gguf",
+          "qwen35.attention.head_count": 8,
+          "qwen35.attention.head_count_kv": 2,
+          "qwen35.attention.key_length": 256,
+          "qwen35.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "qwen35.attention.value_length": 256,
+          "qwen35.block_count": 24,
+          "qwen35.context_length": 262144,
+          "qwen35.embedding_length": 1024,
+          "qwen35.feed_forward_length": 3584,
+          "qwen35.full_attention_interval": 4,
+          "qwen35.rope.dimension_count": 64,
+          "qwen35.rope.dimension_sections": "<array:INT32>",
+          "qwen35.rope.freq_base": 10000000.0,
+          "qwen35.ssm.conv_kernel": 4,
+          "qwen35.ssm.group_count": 16,
+          "qwen35.ssm.inner_size": 2048,
+          "qwen35.ssm.state_size": 128,
+          "qwen35.ssm.time_step_rank": 16
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 4.8,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 92.8,
+        "peak_rss_gib": 4.4512786865234375,
+        "n_jobs": 320,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 1024,
+          "total_blocks": 24,
+          "nextn_predict_layers": 0,
+          "n_layers": 24,
+          "vocab_size": 248320,
+          "n_heads": 8,
+          "n_kv_heads": 2,
+          "head_dim": 256,
+          "intermediate_size": 3584,
+          "linear_num_key_heads": 16,
+          "linear_key_head_dim": 128,
+          "linear_num_value_heads": 16,
+          "linear_value_head_dim": 128,
+          "linear_conv_kernel_dim": 4,
+          "full_attention_interval": 4,
+          "key_dim": 2048,
+          "value_dim": 2048,
+          "conv_dim": 6144,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 10000000.0,
+          "rope_dim": 64
+        },
+        "output_bytes": 612908288,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 694,
+        "n_shards": 1,
+        "index_total_size": 612908288,
+        "missing_files": [],
+        "model_type": "qwen3_5",
+        "quantization": {
+          "bits": 6,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 11.7,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 7.3,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 499,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Question: \"The capital of France is?\"\n    *   Constraint: Answer with just the city name.\n\n2.  **Identify the Fact:**\n    *   The capital of France is Paris.\n\n3.  **Format the Output:**\n    *   Constraint: \"Answer with just the city name.\"\n    *   Output: \"Paris\"\n\n4.  **Final Verification:**\n    *   Does \"Paris\" answer the question? Yes.\n    "
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 400,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Thinking Process:\n\n1.  **Analyze the Request:** The user is asking for the result of the multiplication $17 \\times 23$ and wants the answer to be \"just the number\".\n\n2.  **Perform the Calculation:**\n    *   $17 \\times 23$\n    *   Break it down: $(10 + 7) \\times 23$\n    *   $10 \\times 23 = 230$\n    *   $7 \\times 23 = 161$\n    *   $230 + 161 = 391$\n    *   Alternatively:\n        *   $17 \\times 20 = "
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 540,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: The ocean.\n    *   Constraint: Write *one* sentence.\n\n2.  **Identify Key Elements of the Ocean:**\n    *   Water, vastness, life, colors, temperature, depth, movement, history, connection to land.\n    *   Metaphor: \"The ocean is the sea,\" \"The ocean is the sky,\" \"The ocean is the heart of the earth.\"\n    *   Tone: Descriptive, evocative"
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is Paris.\nThe capital of France is"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 391\n17 * 24 = 408\n17 * 25 ="
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nassistant\n<think>\n\n</think>\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": false,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nassistant\n<think>\n\n</think>\n\n501"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nassistant\n<think>\nThinking Process:\n\n1.  **Analyze the Request:**\n    *   Topic: The ocean.\n    *   Constraint: Write *one* sentence.\n\n2.  **Identify Key Elements of the Ocean:**\n    *   It's a vast body of water.\n    *   It's life-giving (oxygen, food).\n    *   It's a boundary (between land and sea).\n    *   It's a source of energy (waves, tides).\n    *   "
+          }
+        ]
+      }
+    },
+    "qwen3_06b:Q4_K_M": {
+      "family": "Qwen3 dense",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/Qwen3-0.6B-GGUF",
+        "revision": "50968a4468ef4233ed78cd7c3de230dd1d61a56b",
+        "file": "Qwen3-0.6B-Q4_K_M.gguf",
+        "sha256": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+        "size_bytes": 396705472
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "qwen3",
+        "n_tensors": 310,
+        "source_bytes": 396705472,
+        "metadata": {
+          "GGUF.kv_count": 32,
+          "GGUF.tensor_count": 310,
+          "GGUF.version": 3,
+          "quantize.imatrix.chunks_count": 688,
+          "quantize.imatrix.dataset": "unsloth_calibration_Qwen3-0.6B.txt",
+          "quantize.imatrix.entries_count": 196,
+          "quantize.imatrix.file": "Qwen3-0.6B-GGUF/imatrix_unsloth.dat",
+          "qwen3.attention.head_count": 16,
+          "qwen3.attention.head_count_kv": 8,
+          "qwen3.attention.key_length": 128,
+          "qwen3.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "qwen3.attention.value_length": 128,
+          "qwen3.block_count": 28,
+          "qwen3.context_length": 40960,
+          "qwen3.embedding_length": 1024,
+          "qwen3.feed_forward_length": 3072,
+          "qwen3.rope.freq_base": 1000000.0
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 3.1,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 55.2,
+        "peak_rss_gib": 3.3981170654296875,
+        "n_jobs": 310,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 1024,
+          "n_layers": 28,
+          "vocab_size": 151936,
+          "n_heads": 16,
+          "n_kv_heads": 8,
+          "head_dim": 128,
+          "intermediate_size": 3072,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 1000000.0
+        },
+        "output_bytes": 335503360,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 704,
+        "n_shards": 1,
+        "index_total_size": 335503360,
+        "missing_files": [],
+        "model_type": "qwen3",
+        "quantization": {
+          "bits": 4,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 5.7,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 5.8,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 377,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "<think>\nOkay, the user is asking about the capital of France. Let me think. I remember that France is a country in Europe, and its capital is a big city. I think it's called Paris. But wait, is there another city? Or is it just Paris? Let me confirm. Yes, Paris is the capital. So the answer should be Paris. No other cities mentioned here. I'm pretty sure now.\n</think>\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 558,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": false,
+            "output": "<think>\nOkay, let's see. I need to calculate 17 multiplied by 23. Hmm, how do I approach this? Well, maybe I can break it down. Let me think about multiplication properties. Sometimes, multiplying by a number like 23 can be tricky, but maybe there's a way to simplify it.\n\nWait, 23 is a prime number, right? So maybe there's a way to factor it or something. But 17 is a prime as well. Hmm, not sure. "
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 722,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "<think>\nOkay, the user wants a one-sentence summary about the ocean. Let me start by brainstorming some ideas. The ocean is a vast body of water, so maybe start with its vastness. \"The ocean is a vast body of water that surrounds the Earth, playing a crucial role in the planet's climate and ecosystems.\" That's a good sentence. But maybe I can make it more concise. Let me check if there's a better "
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris. The capital of France is also the capital of the Republic of France. The capital of France is also the capital"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 391, 23 * 17 = 391, 17 * 2"
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nassistant\n<think>\nOkay, the user is asking about the capital of France. I need to make sure I'm answering correctly. Let me think. I remember that France's capital is Paris. But wait, is there any chance it's another city? No, I think Paris is definitely the capital. Let me double-check. Yes, Paris is the capital. So the answer should "
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nassistant\n<think>\nOkay, let's see. I need to calculate 17 multiplied by 23. Hmm, how do I do that? Well, maybe I can break it down. Let me think. 17 times 20 is 340, right? And 17 times 3 is 51. Then I add those two results together. So 340 plus 51 is... let me add them. 340 + 50 is 390, and then plus 1 more is 391. So the answer should be 391. Wait, i"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nassistant\n<think>\nOkay, the user wants a sentence about the ocean. Let me start by thinking about the key elements of the ocean. It's a vast body of water, so maybe start with its size. \"The ocean is a vast and mysterious body of water\" sounds good. But maybe I can make it more vivid. \"The ocean, a vast and mysterious body of water, covers the entire planet"
+          }
+        ]
+      }
+    },
+    "qwen3_06b:Q6_K": {
+      "family": "Qwen3 dense",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/Qwen3-0.6B-GGUF",
+        "revision": "50968a4468ef4233ed78cd7c3de230dd1d61a56b",
+        "file": "Qwen3-0.6B-Q6_K.gguf",
+        "sha256": "1c15a88244c9e852516e5ba0e394fc97f2182f1f2757413fb99fe6a9214c033b",
+        "size_bytes": 495107776
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "qwen3",
+        "n_tensors": 310,
+        "source_bytes": 495107776,
+        "metadata": {
+          "GGUF.kv_count": 32,
+          "GGUF.tensor_count": 310,
+          "GGUF.version": 3,
+          "quantize.imatrix.chunks_count": 688,
+          "quantize.imatrix.dataset": "unsloth_calibration_Qwen3-0.6B.txt",
+          "quantize.imatrix.entries_count": 196,
+          "quantize.imatrix.file": "Qwen3-0.6B-GGUF/imatrix_unsloth.dat",
+          "qwen3.attention.head_count": 16,
+          "qwen3.attention.head_count_kv": 8,
+          "qwen3.attention.key_length": 128,
+          "qwen3.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "qwen3.attention.value_length": 128,
+          "qwen3.block_count": 28,
+          "qwen3.context_length": 40960,
+          "qwen3.embedding_length": 1024,
+          "qwen3.feed_forward_length": 3072,
+          "qwen3.rope.freq_base": 1000000.0
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 3.0,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 54.3,
+        "peak_rss_gib": 3.4754791259765625,
+        "n_jobs": 310,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 1024,
+          "n_layers": 28,
+          "vocab_size": 151936,
+          "n_heads": 16,
+          "n_kv_heads": 8,
+          "head_dim": 128,
+          "intermediate_size": 3072,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 1000000.0
+        },
+        "output_bytes": 484499456,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 704,
+        "n_shards": 1,
+        "index_total_size": 484499456,
+        "missing_files": [],
+        "model_type": "qwen3",
+        "quantization": {
+          "bits": 6,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 6.2,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 5.4,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 274,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "<think>\nOkay, the user is asking for the capital of France. I know that France's capital is Paris. But wait, maybe they want a more precise answer? Let me double-check. Yes, Paris is the correct city. I should just state it clearly without any extra details.\n</think>\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 505,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": false,
+            "output": "<think>\nOkay, so I need to solve 17 multiplied by 23 and give the answer as just the number. Let me think about how to do this. Hmm, multiplication can be tricky sometimes, but I remember that there are different ways to calculate it. Maybe I can break it down into smaller parts? Like, 17 times 20 and then 17 times 3? Let me try that.\n\nFirst, 17 times 20. Well, 17 times 2 is 34, so 17 times 20 wou"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 722,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "<think>\nOkay, the user wants me to write one sentence about the ocean. Let me start by thinking about the key elements of the ocean. It's a vast body of water, so maybe start with its size. Then, think about its features\u2014waves, tides, marine life. Also, maybe mention its role in the environment. Let me check if I can make it concise and vivid. Maybe something like \"The ocean, vast and mysterious, "
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris. The capital of France is also the capital of the French Republic. The capital of France is also the capital of"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 391, and 23 * 23 = 529, so the product of"
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nassistant\n<think>\nOkay, the user is asking for the capital of France. I know that France's capital is Paris. But wait, let me make sure. I've heard that Paris is indeed the capital. No other city is commonly referred to as the capital. Maybe I should double-check to avoid any confusion. Yeah, I think that's right. So the answer should "
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": false,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nassistant\n<think>\nOkay, let's see. I need to calculate 17 multiplied by 23 and just give the number. Hmm, how do I do that? Well, maybe I can break it down. Let me think. 17 times 23... Maybe I can use the standard multiplication method. Let's write it out.\n\nFirst, I know that 17 times 20 would be 340, right? Because 17 times 2 is 34, and then times 10"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nassistant\n<think>\nOkay, the user wants me to write one sentence about the ocean. Let me start by brainstorming some key elements of the ocean. The ocean is vast, it's a global body of water, and it's home to so many species. I should make sure the sentence is concise but still captures the essence.\n\nMaybe start with \"The ocean...\" to set the scene. Then men"
+          }
+        ]
+      }
+    },
+    "llama32_1b:Q4_K_M": {
+      "family": "Llama 3.x dense",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",
+        "revision": "067b946cf014b7c697f3654f621d577a3e3afd1c",
+        "file": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+        "sha256": "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
+        "size_bytes": 807694464
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "llama",
+        "n_tensors": 147,
+        "source_bytes": 807694464,
+        "metadata": {
+          "GGUF.kv_count": 35,
+          "GGUF.tensor_count": 147,
+          "GGUF.version": 3,
+          "llama.attention.head_count": 32,
+          "llama.attention.head_count_kv": 8,
+          "llama.attention.key_length": 64,
+          "llama.attention.layer_norm_rms_epsilon": 9.999999747378752e-06,
+          "llama.attention.value_length": 64,
+          "llama.block_count": 16,
+          "llama.context_length": 131072,
+          "llama.embedding_length": 2048,
+          "llama.feed_forward_length": 8192,
+          "llama.rope.dimension_count": 64,
+          "llama.rope.freq_base": 500000.0,
+          "llama.vocab_size": 128256,
+          "quantize.imatrix.chunks_count": 125,
+          "quantize.imatrix.dataset": "/training_dir/calibration_datav3.txt",
+          "quantize.imatrix.entries_count": 112,
+          "quantize.imatrix.file": "/models_out/Llama-3.2-1B-Instruct-GGUF/Llama-3.2-1B-Instruct.imatrix"
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 3.7,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 34.6,
+        "peak_rss_gib": 4.19525146484375,
+        "n_jobs": 146,
+        "n_dropped": 1,
+        "dims": {
+          "hidden_size": 2048,
+          "n_layers": 16,
+          "vocab_size": 128256,
+          "n_heads": 32,
+          "n_kv_heads": 8,
+          "head_dim": 64,
+          "intermediate_size": 8192,
+          "rms_norm_eps": 9.999999747378752e-06,
+          "rope_theta": 500000.0
+        },
+        "output_bytes": 695377920,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 372,
+        "n_shards": 1,
+        "index_total_size": 695377920,
+        "missing_files": [],
+        "model_type": "llama",
+        "quantization": {
+          "bits": 4,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 8.1,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 4.6,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 5,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Paris"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 3,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "391"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 182,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "The ocean is a vast and diverse ecosystem that covers over 70% of the Earth's surface, supporting an incredible array of marine life and playing a crucial role in the global climate."
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris. The Eiffel Tower is a famous landmark in Paris. The Eiffel Tower is a symbol of France"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 391\n17 * 23 = 391\n17 * 23 = 391\n17 * 23 ="
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\n\nThe capital of France is? Answer with just the city name.assistant\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\n\n17 * 23 = ? Answer with just the number.assistant\n\n391"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\n\nWrite one sentence about the ocean.assistant\n\nThe vast and mysterious ocean covers over 70% of the Earth's surface, playing a crucial role in regulating the planet's climate and supporting an incredible array of marine life."
+          }
+        ]
+      }
+    },
+    "llama32_1b:Q6_K": {
+      "family": "Llama 3.x dense",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",
+        "revision": "067b946cf014b7c697f3654f621d577a3e3afd1c",
+        "file": "Llama-3.2-1B-Instruct-Q6_K.gguf",
+        "sha256": "0f4c510daf16e0d1b3bc94931fd9296c28936bebdda2593687d4eb70c5b70628",
+        "size_bytes": 1021800576
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "llama",
+        "n_tensors": 147,
+        "source_bytes": 1021800576,
+        "metadata": {
+          "GGUF.kv_count": 35,
+          "GGUF.tensor_count": 147,
+          "GGUF.version": 3,
+          "llama.attention.head_count": 32,
+          "llama.attention.head_count_kv": 8,
+          "llama.attention.key_length": 64,
+          "llama.attention.layer_norm_rms_epsilon": 9.999999747378752e-06,
+          "llama.attention.value_length": 64,
+          "llama.block_count": 16,
+          "llama.context_length": 131072,
+          "llama.embedding_length": 2048,
+          "llama.feed_forward_length": 8192,
+          "llama.rope.dimension_count": 64,
+          "llama.rope.freq_base": 500000.0,
+          "llama.vocab_size": 128256,
+          "quantize.imatrix.chunks_count": 125,
+          "quantize.imatrix.dataset": "/training_dir/calibration_datav3.txt",
+          "quantize.imatrix.entries_count": 112,
+          "quantize.imatrix.file": "/models_out/Llama-3.2-1B-Instruct-GGUF/Llama-3.2-1B-Instruct.imatrix"
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 3.8,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 35.4,
+        "peak_rss_gib": 4.288330078125,
+        "n_jobs": 146,
+        "n_dropped": 1,
+        "dims": {
+          "hidden_size": 2048,
+          "n_layers": 16,
+          "vocab_size": 128256,
+          "n_heads": 32,
+          "n_kv_heads": 8,
+          "head_dim": 64,
+          "intermediate_size": 8192,
+          "rms_norm_eps": 9.999999747378752e-06,
+          "rope_theta": 500000.0
+        },
+        "output_bytes": 1004314624,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 372,
+        "n_shards": 1,
+        "index_total_size": 1004314624,
+        "missing_files": [],
+        "model_type": "llama",
+        "quantization": {
+          "bits": 6,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 9.6,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 5.2,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 5,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Paris"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 3,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "391"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 215,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "The ocean is a vast and diverse ecosystem that covers over 70% of the Earth's surface, playing a crucial role in regulating the climate, supporting marine life, and providing numerous economic and cultural benefits."
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris. The Eiffel Tower is located in Paris. The Louvre Museum is also located in Paris. The famous"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = ?\nTo find the product of 17 and 23, we multiply the two numbers together.\n\n17 * 23 ="
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\n\nThe capital of France is? Answer with just the city name.assistant\n\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\n\n17 * 23 = ? Answer with just the number.assistant\n\n391"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\n\nWrite one sentence about the ocean.assistant\n\nThe vast and mysterious ocean covers over 70% of the Earth's surface, playing a vital role in regulating the planet's climate and supporting an incredible array of marine life."
+          }
+        ]
+      }
+    },
+    "gemma3_270m:Q4_K_M": {
+      "family": "Gemma 3 text",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/gemma-3-270m-it-GGUF",
+        "revision": "c90975dbd40c0c7b275fefaae758c3415c906238",
+        "file": "gemma-3-270m-it-Q4_K_M.gguf",
+        "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
+        "size_bytes": 253115424
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "gemma3",
+        "n_tensors": 236,
+        "source_bytes": 253115424,
+        "metadata": {
+          "GGUF.kv_count": 45,
+          "GGUF.tensor_count": 236,
+          "GGUF.version": 3,
+          "gemma3.attention.head_count": 4,
+          "gemma3.attention.head_count_kv": 1,
+          "gemma3.attention.key_length": 256,
+          "gemma3.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "gemma3.attention.sliding_window": 512,
+          "gemma3.attention.value_length": 256,
+          "gemma3.block_count": 18,
+          "gemma3.context_length": 32768,
+          "gemma3.embedding_length": 640,
+          "gemma3.feed_forward_length": 2048,
+          "gemma3.rope.freq_base": 1000000.0,
+          "quantize.imatrix.chunks_count": 141,
+          "quantize.imatrix.dataset": "unsloth_calibration_gemma-3-270m-it.txt",
+          "quantize.imatrix.entries_count": 126,
+          "quantize.imatrix.file": "gemma-3-270m-it-GGUF/imatrix_unsloth.gguf"
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 4.0,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 56.4,
+        "peak_rss_gib": 3.4942169189453125,
+        "n_jobs": 236,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 640,
+          "n_layers": 18,
+          "vocab_size": 262144,
+          "n_heads": 4,
+          "n_kv_heads": 1,
+          "head_dim": 256,
+          "intermediate_size": 2048,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 1000000.0,
+          "sliding_window": 512
+        },
+        "output_bytes": 150997504,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 490,
+        "n_shards": 1,
+        "index_total_size": 150997504,
+        "missing_files": [],
+        "model_type": "gemma3_text",
+        "quantization": {
+          "bits": 4,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 5.2,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 5.0,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 5,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Paris"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 192,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": false,
+            "output": "17 * 23 = 17 * 26 * What is the product?\n1\n17 * 26 = 16 * 14 * 3\n1\n16\n1\n14\n3\n1\n2\n3\n1\n1\n10\n3\n2\n3\n1\n4\n5\n6\n7\n10\n11\n20\n22\n25\n25\n30\n35\nvariation\n1\n2\n3\n4\n5\n6\n7\n10\n11\n20\n22\n25\n25\n30\n35\n36\n37\n5\n6\n7\n10"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 62,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "The ocean is a timeless beauty and a source of endless wonder."
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris.\nThe capital of France is Paris.\n\nThis is a classic example of a deductive argument.\n\n**Therefore"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 426\n17 * 23 = 426\n17 * 23 ="
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nmodel\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": false,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nmodel\n17 * 23 = 361"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nmodel\nThe ocean is a vast and mysterious body of water teeming with life and providing essential sustenance for countless species."
+          }
+        ]
+      }
+    },
+    "gemma3_270m:Q6_K": {
+      "family": "Gemma 3 text",
+      "status": "PASS",
+      "source": {
+        "gguf_repo": "unsloth/gemma-3-270m-it-GGUF",
+        "revision": "c90975dbd40c0c7b275fefaae758c3415c906238",
+        "file": "gemma-3-270m-it-Q6_K.gguf",
+        "sha256": "9826846190dea7bdd334fb834d5a1d3b8bf95b14a9833fe792e0abbc49b4927f",
+        "size_bytes": 282975264
+      },
+      "inspect": {
+        "status": "PASS",
+        "gguf_arch": "gemma3",
+        "n_tensors": 236,
+        "source_bytes": 282975264,
+        "metadata": {
+          "GGUF.kv_count": 45,
+          "GGUF.tensor_count": 236,
+          "GGUF.version": 3,
+          "gemma3.attention.head_count": 4,
+          "gemma3.attention.head_count_kv": 1,
+          "gemma3.attention.key_length": 256,
+          "gemma3.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+          "gemma3.attention.sliding_window": 512,
+          "gemma3.attention.value_length": 256,
+          "gemma3.block_count": 18,
+          "gemma3.context_length": 32768,
+          "gemma3.embedding_length": 640,
+          "gemma3.feed_forward_length": 2048,
+          "gemma3.rope.freq_base": 1000000.0,
+          "quantize.imatrix.chunks_count": 141,
+          "quantize.imatrix.dataset": "unsloth_calibration_gemma-3-270m-it.txt",
+          "quantize.imatrix.entries_count": 126,
+          "quantize.imatrix.file": "gemma-3-270m-it-GGUF/imatrix_unsloth.gguf"
+        }
+      },
+      "validate_config": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 0.1,
+        "stderr": ""
+      },
+      "dry_run": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 4.0,
+        "stderr": ""
+      },
+      "convert": {
+        "status": "PASS",
+        "elapsed_s": 56.5,
+        "peak_rss_gib": 3.53717041015625,
+        "n_jobs": 236,
+        "n_dropped": 0,
+        "dims": {
+          "hidden_size": 640,
+          "n_layers": 18,
+          "vocab_size": 262144,
+          "n_heads": 4,
+          "n_kv_heads": 1,
+          "head_dim": 256,
+          "intermediate_size": 2048,
+          "rms_norm_eps": 9.999999974752427e-07,
+          "rope_theta": 1000000.0,
+          "sliding_window": 512
+        },
+        "output_bytes": 218008064,
+        "n_shards": 1
+      },
+      "structural": {
+        "status": "PASS",
+        "checks": {
+          "index_files_present": true,
+          "config_complete": true,
+          "unmatched_none": true
+        },
+        "n_keys": 490,
+        "n_shards": 1,
+        "index_total_size": 218008064,
+        "missing_files": [],
+        "model_type": "gemma3_text",
+        "quantization": {
+          "bits": 6,
+          "group_size": 64,
+          "mode": "affine"
+        }
+      },
+      "verify": {
+        "status": "PASS",
+        "rc": 0,
+        "elapsed_s": 5.2,
+        "stderr": ""
+      },
+      "mlx_generation": {
+        "status": "PASS",
+        "elapsed_s": 4.7,
+        "generations": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "n_chars": 6,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": true,
+            "output": "Paris\n"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "n_chars": 14,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": false,
+            "output": "17 * 23 = 321\n"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "n_chars": 137,
+            "printable_ratio": 1.0,
+            "immediate_eos": false,
+            "expected_hit": null,
+            "output": "The ocean is a vast and mysterious body of water teeming with life, providing a source of sustenance and beauty for countless creatures.\n"
+          }
+        ]
+      },
+      "llamacpp": {
+        "status": "PASS",
+        "raw": [
+          {
+            "prompt": "The capital of France is",
+            "status": "PASS",
+            "output": "The capital of France is Paris.\n\nThe capital of France is Paris.\n\nThe capital of France is Paris.\n\nThe capital of France is"
+          },
+          {
+            "prompt": "17 * 23 =",
+            "status": "PASS",
+            "output": "17 * 23 = 421\n\nTherefore, the answer is 421.\n [end of text]"
+          }
+        ],
+        "chat": [
+          {
+            "prompt": "The capital of France is? Answer with just the city name.",
+            "expected": "Paris",
+            "status": "PASS",
+            "expected_hit": true,
+            "output": "user\nThe capital of France is? Answer with just the city name.\nmodel\nParis"
+          },
+          {
+            "prompt": "17 * 23 = ? Answer with just the number.",
+            "expected": "391",
+            "status": "PASS",
+            "expected_hit": false,
+            "output": "user\n17 * 23 = ? Answer with just the number.\nmodel\n17 * 23 = 361"
+          },
+          {
+            "prompt": "Write one sentence about the ocean.",
+            "expected": null,
+            "status": "PASS",
+            "expected_hit": null,
+            "output": "user\nWrite one sentence about the ocean.\nmodel\nThe ocean is a vast and mysterious body of water teeming with life and providing essential resources for countless ecosystems."
+          }
+        ]
+      }
+    }
+  },
+  "omlx": {
+    "status": "PASS",
+    "discovery": {
+      "status": "PASS",
+      "expected": [
+        "gemma3_270m-q4km-mlx4bit",
+        "llama32_1b-q4km-mlx4bit",
+        "qwen35_08b-q4km-mlx4bit",
+        "qwen3_06b-q4km-mlx4bit"
+      ],
+      "discovered": [
+        "gemma3_270m-q4km-mlx4bit",
+        "gemma3_270m-q6k-mlx6bit",
+        "llama-f16-test",
+        "llama-noscale-test",
+        "llama32_1b-q4km-mlx4bit",
+        "llama32_1b-q6k-mlx6bit",
+        "qwen35_08b-q4km-mlx4bit",
+        "qwen35_08b-q6k-mlx6bit",
+        "qwen3_06b-q4km-mlx4bit",
+        "qwen3_06b-q6k-mlx6bit"
+      ]
+    },
+    "chat_completions": [
+      {
+        "model": "qwen35_08b-q4km-mlx4bit",
+        "status": "PASS",
+        "expected_hit": true,
+        "output": "Thinking Process:\n\n1.  **Analyze the Request:**\n    *   Input: \"17 * 23 = ? Answer with just the number.\"\n    *   Task: Calculate the product of 17 and 23.\n    *   Constraint: \"Answer with just the number.\"\n\n2.  **Perform the Calculation:**\n    *   17 * 23\n    *   10 * 23 = 230\n    *   7 * 23 = 161\n"
+      },
+      {
+        "model": "qwen3_06b-q4km-mlx4bit",
+        "status": "PASS",
+        "expected_hit": true,
+        "output": "Okay, let's see. I need to calculate 17 multiplied by 23. Hmm, how do I approach this? Well, maybe I can break it down. Let me think about multiplication properties. Sometimes, multiplying by a number like 23 can be tricky, but maybe there's a way to simplify it.\n\nWait, 23 is a prime number, right? "
+      },
+      {
+        "model": "llama32_1b-q4km-mlx4bit",
+        "status": "PASS",
+        "expected_hit": false,
+        "output": "791"
+      },
+      {
+        "model": "gemma3_270m-q4km-mlx4bit",
+        "status": "PASS",
+        "expected_hit": false,
+        "output": "17 x 2 = 34\n1 x 1 = 1\n1 x 2 = 1\n1 x 3 = 1\n1 x 4 = 5\n1 x 5 = 6\n1 x 6 = 12\n1 x 7 = 14\n1 x 8 = 3\n1 x 9 = 1+3 = 4\n1 x 10 = 10\n1 x 11 = 11\n1 x 12 = 12\n1 x 13 = 15\n1 x 14 = 3\n1 x 5\n1 x 6\n1 x 7\n1 x 8\n1 x 9\n1 x 10\n1 x 11\n1 x 12\n1 x 13\n1 x 2\n1 x 3\n1 x 4\n1 x 5\n1 x 6\n1 x 7\n1 x 8\n1 x 9\n1 x 10\n1 x 11\n2 x 12\n2 x "
+      }
+    ]
+  }
+}

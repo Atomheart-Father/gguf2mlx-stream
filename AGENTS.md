@@ -20,6 +20,10 @@ New model families should normally be supported by:
 
 The current Qwen3.5/Nyx converter is the reference implementation and regression case, not the final architecture of the project.
 
+## Current status
+
+Multi-architecture release validation is complete (0.1.0a1): `qwen3_5`, `qwen3`, `llama`, and `gemma3` configs are validated end-to-end with real-GGUF integration evidence (4 families × Q4_K_M + Q6_K, full stage pipeline, isolated oMLX check). The next phase is a second stress-test architecture chosen to exercise the abstraction, followed by publication prep.
+
 ## Local environment
 
 Development root:
@@ -214,6 +218,12 @@ Do not blindly apply another `+1`.
 
 The currently working MLX layout ships those norm values as-is.
 
+### Second convention example: Gemma 3 RMSNorm
+
+The opposite direction, deliberately recorded as a second convention example: llama.cpp also bakes the `+1` into gemma3 GGUF norm weights, but mlx-lm's `gemma3_text` runtime **re-adds 1.0** itself. Conversion must therefore subtract 1 from every norm weight (a generic `add` step in `configs/gemma3.yaml`, verified against the HF safetensors reference).
+
+Together these two examples show norm conventions are family-specific and config-driven, never engine-driven.
+
 ### GDN v-head permutation
 
 The relevant GGUF v-head order corresponds to:
@@ -258,6 +268,15 @@ The reference path also handles:
 - dropping the MTP/next-token-prediction block for the proven inference layout.
 
 Do not treat Qwen3.5 as a Qwen2/Llama layout.
+
+### Llama family q/k storage permutation
+
+llama.cpp bakes a convert-time q/k out-axis storage permutation into
+llama-arch GGUFs (within each head block, the natural row
+`d + (head_dim/2)*c` is stored at `2*d + c`; `attn_v`/`attn_output` are not
+permuted). The llama config inverts it with generic reshape → permute →
+reshape operators — no family-specific engine code (documented in
+`configs/llama.yaml`).
 
 ### mlx-lm config compatibility
 
@@ -359,6 +378,8 @@ First prove that the architecture/config/operator abstraction reproduces the exi
 
 Then add a second architecture chosen specifically to stress-test the abstraction.
 
+The dense-family configs (`qwen3`, `llama`, `gemma3`) added for the 0.1.0a1 release validation are low-stress coverage configs that prove the engine generalizes; they do not satisfy the second-architecture milestone, which still requires a deliberately stress-testing addition (see docs/ROADMAP.md).
+
 The goal is a small correct compiler-like core, not a long list of fragile architecture-specific scripts.
 
 ## Git / publication
@@ -380,7 +401,9 @@ Before publication, review:
 
 ## Current status (for agents picking this up)
 
-* The engine, Qwen3.5 config, and full test suite live here; `66 passed / 3 skipped` is the baseline (`pytest`).
-* The original Nyx source GGUFs were deleted from `~/Models/MLX/Nyx-RP-9B-Instruct-2608-v1/`; the proven MLX outputs (`...-MLX-6bit`, `...-MLX-4bit`) remain and anchor the structural regression tests (`tests/test_nyx_parity.py`).
-* Real-GGUF integration tests are env-gated (`GGUF2MLX_TEST_Q6_GGUF`, `GGUF2MLX_TEST_Q4_GGUF`, `GGUF2MLX_TEST_SOURCE_DIR`) and report `SKIPPED` when assets are absent.
+* The engine, four architecture configs (`configs/qwen3_5.yaml`, `qwen3.yaml`, `llama.yaml`, `gemma3.yaml`), and the full test suite live here; `84 passed / 3 skipped` is the baseline (`.venv/bin/python -m pytest tests/ -q`; the skips are env-gated real-GGUF tests).
+* The original Nyx source GGUFs were deleted from `~/Models/MLX/Nyx-RP-9B-Instruct-2608-v1/`; the proven MLX outputs (`...-MLX-6bit`, `...-MLX-4bit`) remain and anchor the structural regression tests (`tests/test_nyx_parity.py`). Never overwrite them.
+* Release validation (0.1.0a1): 8 real-GGUF conversions (4 families × Q4_K_M + Q6_K) pass the full integration matrix (`scripts/run_integration_matrix.py`, fixtures via `scripts/fetch_integration_models.py`, manifest `tests/integration/models.yaml`); reports live in `reports/`. Fixtures and outputs live in `.integration-models/` (git-ignored) and must never overwrite reference model libraries.
+* Env-gated Nyx integration tests (`GGUF2MLX_TEST_Q6_GGUF`, `GGUF2MLX_TEST_Q4_GGUF`, `GGUF2MLX_TEST_SOURCE_DIR`) report `SKIPPED` when assets are absent.
+* Next phase: a second stress-test architecture (see docs/ROADMAP.md selection criteria) and publication prep (license/attribution, secret scan, large-file scan, local-path leakage).
 * Docs: `docs/ARCHITECTURE.md`, `docs/CONFIG_SPEC.md`, `docs/TESTING.md`, `docs/ROADMAP.md`.

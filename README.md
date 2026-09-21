@@ -1,9 +1,15 @@
 # gguf2mlx-stream
 
-**Declarative, bounded-memory GGUF → MLX-LM checkpoint streaming transcoder.**
+**Declarative, bounded-memory GGUF → MLX-LM checkpoint transcoder.**
 
 Convert llama.cpp GGUF models into standard MLX-LM checkpoints on Apple
-Silicon without ever materializing a full dequantized copy of the model.
+Silicon using tensor-bounded streaming dequantization: one quantized GGUF
+tensor (or one row-chunk of a huge tensor) is read at a time, dequantized
+in bounded chunks, transformed, quantized, written to the shard, and
+released. A complete FP16/BF16 checkpoint is never materialized.
+
+("Streaming" here means bounded-memory *tensor* streaming — not token-level
+streaming.)
 
 ```python
 from mlx_lm import load
@@ -24,8 +30,7 @@ source bytes  +  full FP16 copy  +  quantized output
 simultaneously in memory. For a 9B model that is ~18 GiB of weights alone
 plus the quantized output on a 24 GB machine: instant swap, often OOM.
 
-`gguf2mlx-stream` never builds that intermediate. It processes **one tensor
-(or one row-chunk of a huge tensor) at a time**:
+`gguf2mlx-stream` never builds that intermediate. Per tensor (or row-chunk):
 
 ```
 GGUF quantized tensor/chunk  (mmap, quantized bytes)
@@ -40,80 +45,111 @@ safetensors shard (flushed at a size limit)
         ↓  release
 ```
 
-Reference numbers for a 9B hybrid model on an M4 Pro (24 GB):
-peak RSS ≈ 13–15 GiB (including evictable mmap page cache), conversion time
-≈ 2 minutes, 6-bit output ≈ 6.8 GiB, 4-bit output ≈ 4.7 GiB.
+## Supported architectures
 
-## Supported
+| family | config | highlights |
+|---|---|---|
+| `qwen3_5` | `configs/qwen3_5.yaml` | Qwen3.5 hybrid GDN + full attention; generic grouped v-head reorder for any heads/kv-heads ratio 1–4; NextN/MTP block removal via block-range drop rules; fused q\|k\|v; full-attention q+gate fusion pass-through; `A_log = log(−unpermute(ssm_a))`; conv1d `(dim,k) → (dim,k,1)`; output config nested under `text_config` |
+| `qwen3` | `configs/qwen3.yaml` | dense transformer; tied-embedding aware (`tie_word_embeddings` derived from `output.weight` presence); q/k-norm pass-through |
+| `llama` | `configs/llama.yaml` | Llama family; undoes the llama.cpp convert-time q/k out-axis storage permutation with a generic reshape→permute→reshape chain; drops the derived `rope_freqs.weight` buffer |
+| `gemma3` | `configs/gemma3.yaml` | Gemma 3 text; subtracts the llama.cpp-baked `+1` from all RMSNorm weights (mlx-lm `gemma3_text` re-adds 1.0 at runtime); sliding/global attention pattern literals in output config |
 
-| | |
-|---|---|
-| GGUF inputs | `Q4_K` (incl. Q4_K_M), `Q6_K`, `Q8_0`, `F32`, `F16`, `BF16` |
-| MLX output quantization | affine, bits 2/3/4/6/8, any group size dividing the row |
-| Architectures | `qwen3_5` (hybrid GDN + full attention) via `configs/qwen3_5.yaml` |
-| Output | standard MLX-LM directory (config.json, sharded safetensors, index, tokenizer files) |
+Configs are data: matching, transforms, and output metadata are declared in
+YAML and compiled into a validated plan. See docs/CONFIG_SPEC.md.
 
-**Tested models:** Qwen3.5-text 9B dense-hybrid finetunes (the converted
-outputs were verified numerically against the original HF BF16 checkpoint
-and load with `mlx_lm.load()`).
-**Untested:** everything else. The engine is architecture-agnostic, but only
-the Qwen3.5 config has been exercised end-to-end. See docs/ROADMAP.md.
+## Integration evidence
 
-## CLI
+Release validation ran the full stage pipeline for **8 real-GGUF
+conversions (4 families × Q4_K_M + Q6_K), all PASS**:
 
-```bash
-# inspect a GGUF (metadata + tensor inventory)
-gguf2mlx-stream inspect model.gguf --tensors
-
-# list registered transformation operators
-gguf2mlx-stream list-ops
-
-# validate an architecture config before any conversion
-gguf2mlx-stream validate-config configs/qwen3_5.yaml
-
-# compile the conversion plan without touching tensor data
-gguf2mlx-stream convert model.gguf --arch-config configs/qwen3_5.yaml --dry-run
-
-# convert (bounded memory; output is a standard MLX-LM dir)
-gguf2mlx-stream convert model.gguf \
-  --arch-config configs/qwen3_5.yaml \
-  --output ./model-mlx-6bit \
-  --bits 6 --group-size 64 --mode affine \
-  --source-config /path/to/original/config.json \
-  --tokenizer-source /path/to/original/dir
-
-# verify output against source: coverage, shapes, finiteness, numeric spot checks
-gguf2mlx-stream verify model.gguf ./model-mlx-6bit --arch-config configs/qwen3_5.yaml --bits 6
+```
+convert → structural checks → verify → mlx_lm.load → chat generation (temp 0)
+        → llama.cpp source comparison
 ```
 
-`--source-config` supplies the original HF/text `config.json` (used for
-architecture dimensions that GGUF metadata may not carry and for output
-config generation). `--tokenizer-source` names the directory to copy
-tokenizer files from; it defaults to the GGUF's own directory.
+All 8 converted outputs were discovered by an isolated oMLX server
+(`omlx-cli serve`, dedicated port, its own model directory) with working
+`/v1/chat/completions` for the per-family probe models.
 
-## Adding a new architecture
+Measured on Apple M4 Pro (24 GB), mlx-lm 0.31.3:
 
-In order of preference:
+| model | quant | source GiB | output GiB | peak RSS GiB | convert s |
+|---|---|---|---|---|---|
+| Qwen3.5-0.8B (hybrid) | Q4_K_M | 0.50 | 0.40 | 4.22 | 90.4 |
+| Qwen3.5-0.8B (hybrid) | Q6_K | 0.60 | 0.57 | 4.45 | 92.8 |
+| Qwen3-0.6B | Q4_K_M | 0.37 | 0.31 | 3.40 | 55.2 |
+| Qwen3-0.6B | Q6_K | 0.46 | 0.45 | 3.48 | 54.3 |
+| Llama-3.2-1B | Q4_K_M | 0.75 | 0.65 | 4.20 | 34.6 |
+| Llama-3.2-1B | Q6_K | 0.95 | 0.94 | 4.29 | 35.4 |
+| Gemma-3-270M | Q4_K_M | 0.24 | 0.14 | 3.49 | 56.4 |
+| Gemma-3-270M | Q6_K | 0.26 | 0.20 | 3.54 | 56.5 |
 
-1. **Write a config.** Copy `configs/qwen3_5.yaml`, adjust the tensor
-   rules/dims/output mapping. Most "simple layout" architectures need
-   nothing else. Run `validate-config` and `--dry-run` to iterate cheaply.
-2. **Reuse operators.** 19 generic operators (copy/cast/reshape/transpose/
-   slice/concat/zip-unzip blocks/neg/log/exp/add/sub/mul/div/…) cover most
-   transformations. See `gguf2mlx-stream list-ops`.
-3. **Only if truly unavoidable, add a plugin operator**: a small, named,
-   deterministic, tested function registered under a fixed name, referenced
-   from YAML by that name only. Configs can never import or execute code.
+Numbers come from the converter's own `--report-json` statistics
+(reports/integration-matrix.{json,md}; per-variant run reports under the
+integration working directory). Peak RSS includes the mmap'd source page
+cache, which the OS can evict. See docs/TESTING.md for how the matrix is
+reproduced.
 
-See docs/CONFIG_SPEC.md for the full config grammar and
-docs/ARCHITECTURE.md for how the pieces fit.
+## Scope boundaries
+
+* **One source GGUF per conversion.** Tokenizer files and reference-config
+  augmentation come from a single declared sibling source directory
+  (`--source-config` / `--tokenizer-source`). No multi-source merging is
+  performed or planned.
+* **Qwen3.8 is not a supported or claimed target.** No Qwen3.8 config
+  exists and none is implied. Qwen3.5-architecture distills (e.g. 2B-class)
+  may convert via the `qwen3_5` config; that is a compatibility item to
+  verify per model, not a claim.
+
+## Quickstart
+
+```bash
+pip install -e '.[loadtest]'   # engine + mlx-lm for the load/generation contract
+
+# optional: fetch the pinned small integration GGUFs + tokenizers (network)
+python scripts/fetch_integration_models.py
+
+# inspect a GGUF (metadata + tensor inventory)
+gguf2mlx-stream inspect ~/models/qwen.gguf --tensors
+
+# compile the conversion plan without touching tensor data (dry-run/plan view)
+gguf2mlx-stream convert ~/models/qwen.gguf --arch-config configs/qwen3_5.yaml --dry-run
+
+# convert (bounded memory; transactional output; standard MLX-LM dir)
+gguf2mlx-stream convert ~/models/qwen.gguf \
+  --arch-config configs/qwen3_5.yaml \
+  --output ./my-model-mlx-6bit \
+  --bits 6 --group-size 64 --mode affine \
+  --source-config ~/models/qwen-hf/config.json \
+  --tokenizer-source ~/models/qwen-hf
+
+# verify output against source: coverage, shapes, finiteness, numeric spot checks
+gguf2mlx-stream verify ~/models/qwen.gguf ./my-model-mlx-6bit \
+  --arch-config configs/qwen3_5.yaml --bits 6
+```
+
+The output contract is `mlx_lm.load(path)` plus tokenizer files. `--dry-run`
+prints the full plan (every job, drop, and estimate) so mapping mistakes are
+caught before any weights move.
+
+## The non-negotiable memory rule
+
+Never implement the primary conversion path as
+`GGUF → complete FP16/BF16 checkpoint → MLX quantization`. The pipeline is
+always:
+
+```
+read quantized GGUF tensor/chunk → bounded dequantization → transform
+→ MLX quantize → write shard → release
+```
 
 ## Memory expectations
 
 * Bounded by the largest single tensor (dequantized float32) plus the
   current shard buffer (~`max_shard_bytes`, default 4 GiB).
 * Huge vocab-embedding jobs are processed in row chunks (`--chunk-mb`,
-  default 512 MiB of float32 per chunk).
+  default 512 MiB of float32 per chunk) — only for pipelines whose
+  operators are elementwise (chunk-safe) and slice-free.
 * Peak RSS includes the mmap'd source file's page cache, which the OS can
   evict; it is not "live" memory.
 
@@ -132,12 +168,9 @@ docs/ARCHITECTURE.md for how the pieces fit.
 
 ```bash
 pip install -e '.[dev]'
-pytest                       # unit + synthetic pipeline + structural parity
-ruff check src tests
+python -m pytest tests/ -q    # unit + oracle + synthetic pipeline + structural parity
+ruff check src tests scripts
 ```
-
-Optional local integration tests (real GGUF regression) are env-gated and
-skipped when the assets are absent — see tests/test_integration_nyx.py.
 
 ## License
 
