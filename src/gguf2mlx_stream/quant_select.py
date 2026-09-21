@@ -204,3 +204,43 @@ def select_target_bits(plan: Any, requested: str | int | None) -> BitsDecision:
         )
     histogram, counts = quant_histogram(plan.jobs, plan.source.info)
     return decide_target_bits(histogram, requested, counts)
+
+
+# Auto-derived targets with failing capability-gate evidence. Keyed by
+# (architecture config id, dominant source family prefix). Until the gate
+# evidence flips to PASS for a calibrated profile, plain ``--bits auto``
+# refuses to produce these configurations; ``--allow-experimental`` or an
+# explicit ``--bits`` overrides the guard.
+EXPERIMENTAL_AUTO_TARGETS: dict[tuple[str, str], str] = {
+    ("qwen3_5_moe", "IQ3"): (
+        "auto-derived 3-bit for qwen35moe + IQ3 sources FAILED the "
+        "ARC-Challenge capability gate (2026-09-21: clean accuracy 55% vs "
+        "source 90%; Llama-1B 3-bit calibration also failed). 3-bit converts "
+        "correctly but is not a recommended default. Pass --allow-experimental "
+        "to convert anyway, or an explicit --bits to choose the target yourself."
+    ),
+}
+
+
+def experimental_guard(
+    plan: Any, decision: BitsDecision, allow_experimental: bool
+) -> dict[str, str] | None:
+    """Gate auto-derived targets with failing evidence.
+
+    Returns an evidence marker to embed in the output record when the guard
+    applies and ``--allow-experimental`` was passed; raises
+    :class:`PlanError` when it applies and was not allowed; returns ``None``
+    when it does not apply (explicit bits, other architectures/families).
+    """
+    if decision.requested != "auto":
+        return None
+    arch_id = plan.config.architecture.id
+    for (arch, family), reason in EXPERIMENTAL_AUTO_TARGETS.items():
+        if arch == arch_id and (decision.dominant_type or "").startswith(family):
+            if allow_experimental:
+                return {"experimental": True, "experimental_reason": reason}
+            raise PlanError(
+                "--bits auto would silently produce an experimental, "
+                f"gate-failed configuration: {reason}"
+            )
+    return None

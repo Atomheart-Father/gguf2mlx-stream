@@ -27,7 +27,7 @@ from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
 from .constants import SUPPORTED_BITS
-from .quant_select import BitsDecision, select_target_bits
+from .quant_select import BitsDecision, experimental_guard, select_target_bits
 from .runner import ConversionRunner, QuantSettings
 from .source.gguf import GGUFSource
 from .verifier import load_test, verify_conversion
@@ -166,8 +166,26 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
     plan = plan_conversion(config, source, ref_config=ref)
     decision = select_target_bits(plan, None if args.no_quantize else args.bits)
+    bits_record = decision.as_record()
+    try:
+        guard = experimental_guard(
+            plan, decision, allow_experimental=bool(args.allow_experimental)
+        )
+    except Gguf2MlxError as exc:
+        if args.dry_run:
+            print(f"[bits] EXPERIMENTAL GUARD (blocks conversion): {exc}")
+            guard = None
+        else:
+            raise
+    if guard:
+        bits_record.update(guard)
+        if not args.quiet:
+            print("[bits] EXPERIMENTAL: converting a gate-failed configuration "
+                  "by explicit request; recorded in the output config.json")
     if not args.quiet:
         _print_bits_decision(decision, print)
+        if args.dry_run:
+            print("[bits] dry-run: no conversion performed")
     if args.dry_run:
         print("\n".join(plan.summary_lines()))
         return 0
@@ -187,7 +205,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
         chunk_elements=args.chunk_mb * 2**20 // 4,
         log=print if not args.quiet else (lambda _msg: None),
         max_shard_bytes=int(args.max_shard_gb * 2**30) if args.max_shard_gb else None,
-        bits_record=decision.as_record(),
+        bits_record=bits_record,
     )
     stats = runner.run(overwrite=args.overwrite)
     if args.report_json:
@@ -301,6 +319,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override shard size limit from the config")
     p.add_argument("--overwrite", action="store_true",
                    help="replace an existing non-empty output directory")
+    p.add_argument("--allow-experimental", action="store_true",
+                   help="permit auto-derived target-bits configurations that "
+                        "failed the capability gate (e.g. 3-bit for "
+                        "qwen35moe + IQ3 sources); the experimental status "
+                        "is recorded in the output config.json")
     p.add_argument("--chunk-mb", type=int, default=512,
                    help="dequantization chunk size in MiB (default 512)")
     p.add_argument("--quiet", "-q", action="store_true")

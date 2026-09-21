@@ -45,6 +45,70 @@ def anomalies(rec: dict) -> list[str]:
     return flags
 
 
+def load_records(path: Path, name: str) -> dict[str, dict]:
+    """Load one side's records: strict JSONL — duplicate IDs are rejected."""
+    records: dict[str, dict] = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        qid = rec.get("id")
+        if qid is None:
+            raise SystemExit(f"{name}: record without 'id' in {path}")
+        if qid in records:
+            raise SystemExit(f"{name}: duplicate record id {qid!r} in {path}")
+        records[qid] = rec
+    if not records:
+        raise SystemExit(f"{name}: no records in {path}")
+    return records
+
+
+def assert_side_consistency(
+    sides: dict[str, dict[str, dict]],
+) -> tuple[int, float]:
+    """All sides must cover the same questions under the same run parameters.
+
+    Rejects: missing questions on any side, differing answer keys, differing
+    prompt hashes (the rendered prompt is part of the protocol), and
+    differing temp / max_tokens run parameters.
+    """
+    id_sets = {name: set(recs) for name, recs in sides.items()}
+    reference = next(iter(sides))
+    for name, ids in id_sets.items():
+        missing = id_sets[reference] - ids
+        extra = ids - id_sets[reference]
+        if missing or extra:
+            raise SystemExit(
+                f"question coverage mismatch: {reference} vs {name} — "
+                f"missing from {name}: {sorted(missing)[:5]} "
+                f"(+{len(missing)}), unexpected extra: {sorted(extra)[:5]} "
+                f"(+{len(extra)}); every side must complete the same subset"
+            )
+    for qid in sorted(id_sets[reference]):
+        keys = {name: recs[qid].get("answer_key") for name, recs in sides.items()}
+        if len(set(map(str, keys.values()))) != 1:
+            raise SystemExit(f"{qid}: answer key differs across sides: {keys}")
+        hashes = {name: recs[qid].get("prompt_sha256") for name, recs in sides.items()}
+        if len(set(map(str, hashes.values()))) != 1:
+            raise SystemExit(
+                f"{qid}: prompt hash differs across sides: {hashes}; "
+                "both engines must receive the identical rendered prompt"
+            )
+    for param in ("temp", "max_tokens"):
+        values = {
+            name: sorted({str(r.get(param)) for r in recs.values()})
+            for name, recs in sides.items()
+        }
+        if any(len(v) != 1 for v in values.values()):
+            raise SystemExit(f"{param} is not uniform within every side: {values}")
+        if len({v[0] for v in values.values()}) != 1:
+            raise SystemExit(f"{param} differs across sides: {values}")
+    ref_recs = next(iter(sides.values()))
+    max_tokens = int(float(next(iter(ref_recs.values()))["max_tokens"]))
+    temp = float(next(iter(ref_recs.values()))["temp"])
+    return max_tokens, temp
+
+
 def score_side(records_path: Path) -> dict:
     recs = [json.loads(line) for line in records_path.read_text().splitlines()
             if line.strip()]
@@ -70,8 +134,10 @@ def score_side(records_path: Path) -> dict:
         "anomaly_breakdown": dict(sorted(breakdown.items(),
                                          key=lambda kv: -kv[1])),
         "anomaly_events": len(anom),
+        # letter-only compliance: a valid letter was produced AND nothing else
         "letter_only_compliance": sum(1 for r in recs
-                                      if not r.get("extra_text")) / n,
+                                      if r.get("letter") is not None
+                                      and not r.get("extra_text")) / n,
         "median_gen_s": round(statistics.median(gen), 3) if gen else None,
         "total_gen_s": round(sum(gen), 1) if gen else None,
     }
@@ -93,11 +159,17 @@ def main() -> int:
     args = ap.parse_args()
 
     sides: dict[str, dict] = {}
+    raw_sides: dict[str, dict[str, dict]] = {}
+    paths: dict[str, Path] = {}
     for spec in args.side:
         name, _, path = spec.partition("=")
         if not path:
             raise SystemExit(f"--side expects NAME=PATH, got {spec!r}")
-        sides[name] = score_side(Path(path))
+        paths[name] = Path(path)
+        raw_sides[name] = load_records(paths[name], name)
+    max_tokens, temp = assert_side_consistency(raw_sides)
+    for name, path in paths.items():
+        sides[name] = score_side(path)
     if args.source_side not in sides:
         raise SystemExit(f"source side {args.source_side!r} not among sides")
     metas: dict[str, dict] = {}
@@ -126,6 +198,8 @@ def main() -> int:
     result = {
         "title": args.title,
         "source_side": args.source_side,
+        "recorded_max_tokens": max_tokens,
+        "recorded_temp": temp,
         "gate": {"max_clean_accuracy_drop_pp": GATE_CLEAN_ACCURACY_PP,
                  "max_anomaly_rate_increase_pp": GATE_ANOMALY_PP},
         "sides": sides,
@@ -136,6 +210,10 @@ def main() -> int:
         json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 
     lines = [f"# {args.title}", "",
+             f"Protocol evidence: {len(raw_sides)} side(s) × "
+             f"{len(next(iter(raw_sides.values())))} questions, identical "
+             f"question coverage, answer keys, prompt hashes; recorded "
+             f"temp {temp:g}, max_tokens {max_tokens}.", "",
              f"Gate: candidate clean accuracy ≥ source − "
              f"{GATE_CLEAN_ACCURACY_PP:g} pp AND anomaly rate ≤ source + "
              f"{GATE_ANOMALY_PP:g} pp. Failing candidates are experimental "

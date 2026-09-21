@@ -8,6 +8,7 @@ from gguf import GGMLQuantizationType as QT
 from gguf2mlx_stream.constants import SUPPORTED_BITS
 from gguf2mlx_stream.errors import PlanError
 from gguf2mlx_stream.quant_select import (
+    experimental_guard,
     BitsDecision,
     consumed_fraction,
     decide_target_bits,
@@ -225,3 +226,54 @@ def test_bits_decision_record_shape():
 
 def test_supported_bits_constant_unchanged():
     assert SUPPORTED_BITS == (2, 3, 4, 6, 8)
+
+
+# ---------------------------------------------------------------------------
+# experimental guard (auto + qwen35moe + IQ3)
+# ---------------------------------------------------------------------------
+
+
+def _fake_plan(arch_id: str):
+    cfg = SimpleNamespace(architecture=SimpleNamespace(id=arch_id))
+    return SimpleNamespace(config=cfg)
+
+
+def _decision(requested: str, bits: int, dominant: str | None):
+    return BitsDecision(
+        requested=requested, bits=bits, dominant_type=dominant,
+        dominant_bits=bits if dominant else None, reason="test",
+    )
+
+
+def test_guard_blocks_auto_iq3_qwen35moe():
+    plan = _fake_plan("qwen3_5_moe")
+    d = _decision("auto", 3, "IQ3_S")
+    with pytest.raises(PlanError, match="--allow-experimental"):
+        experimental_guard(plan, d, allow_experimental=False)
+
+
+def test_guard_allows_with_flag_and_records_marker():
+    plan = _fake_plan("qwen3_5_moe")
+    d = _decision("auto", 3, "IQ3_S")
+    marker = experimental_guard(plan, d, allow_experimental=True)
+    assert marker is not None and marker["experimental"] is True
+    rec = d.as_record() | (marker or {})
+    assert rec["experimental_reason"]
+    assert "ARC-Challenge" in rec["experimental_reason"]
+
+
+def test_guard_ignores_explicit_bits():
+    plan = _fake_plan("qwen3_5_moe")
+    assert experimental_guard(plan, _decision("3", 3, "IQ3_S"), False) is None
+
+
+def test_guard_ignores_other_arch_or_family():
+    d = _decision("auto", 3, "IQ3_S")
+    assert experimental_guard(_fake_plan("qwen3_5"), d, False) is None
+    assert experimental_guard(_fake_plan("qwen3_5_moe"),
+                              _decision("auto", 4, "Q4_K"), False) is None
+
+
+def test_guard_ignores_non_iq3_dominant_on_qwen35moe():
+    plan = _fake_plan("qwen3_5_moe")
+    assert experimental_guard(plan, _decision("auto", 2, "IQ2_XS"), False) is None

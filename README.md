@@ -94,18 +94,25 @@ reproduced.
 
 Additional large-model regression (`qwen35moe`, run outside the pinned
 matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention
-+ 256-expert MoE), source GGUF i1-IQ3_M → MLX 4-bit:
++ 256-expert MoE). **The historical 4-bit conversion below is superseded
+history — it used the wrong target for an IQ3-dominant source and is not a
+recommended result:**
 
 | source GiB | output GiB (shards) | peak RSS GiB | convert s | verify |
 |---|---|---|---|---|
 | 14.72 | 18.17 (5) | 16.48 | 428 | ALL OK (733 numeric / 733 shape / 1757 finite) |
 
-Output loaded with `mlx_lm.load()`, produced coherent temp-0 chat
-generations through the tokenizer chat template, and shows semantic
-agreement with `llama-completion` output from the source GGUF on spot
-prompts. The same run exercised N-D (3-D expert) quantization with
-chunk-safe streaming and config-declared per-rule 8-bit overrides for the
-MoE router and shared-expert gate.
+That run exercised N-D (3-D expert) quantization with chunk-safe streaming
+and config-declared per-rule 8-bit overrides for the MoE router and
+shared-expert gate, and loaded/produced coherent chat generations.
+
+The current conversion of this source is the **3-bit `--bits auto` run**
+(14.14 GiB / 4 shards, verify ALL OK). Its capability-gate result is
+**FAIL — experimental only, NOT a recommended configuration**: the
+ARC-Challenge gate and the small-model 3-bit calibration both rejected a
+3-bit target for this source class (see `eval/bench/results/`). Converting
+qwen35moe + IQ3 sources at auto-derived 3 bits requires
+`--allow-experimental` until a calibrated group size passes the gate.
 
 ## Scope boundaries
 
