@@ -189,7 +189,7 @@ def test_apply_skips_drop_and_non_quantized_rules(tmp_path):
             {"name": "p", "rules": [{"match": "\\.weight$", "bits": 6}]},
         )
     )
-    cfg, apps, unmatched = apply_quant_profile(_minimal_config(), profile)
+    cfg, apps, _unmatched = apply_quant_profile(_minimal_config(), profile)
     by_dest = {r.dest: r for r in cfg.rules}
     drop_rule = next(r for r in cfg.rules if r.drop)
     assert drop_rule.bits is None

@@ -16,6 +16,27 @@ from mlx_lm import load
 model, tokenizer = load("./my-model-mlx-4bit")   # standard MLX-LM output
 ```
 
+## Practical guidance (read this first)
+
+* GGUF → MLX **streaming conversion is supported** for the architectures
+  listed below, with **bounded-memory, chunked conversion** — a complete
+  FP16/BF16 checkpoint is never materialized.
+* `--bits auto` (the default) picks the MLX bit magnitude matching the
+  source GGUF's byte-dominant quant family: **IQ2/Q2 → 2, IQ3/Q3 → 3,
+  IQ4/Q4 → 4, Q6 → 6, Q8 → 8**. An explicit `--bits` always wins.
+* **4-bit or higher is recommended for practical model quality.**
+* **3-bit is supported but can cause substantial quality degradation.**
+  Converting an auto-derived 3-bit target works out of the box and prints a
+  fidelity warning; the evidence behind that warning is summarized in
+  [Validation / Quantization Fidelity](#validation--quantization-fidelity)
+  below.
+* GGUF quantization and MLX affine quantization are **different encodings**:
+  "same-bit" means the same bit *magnitude*, **not** bit-for-bit equivalent
+  weights. This project does not claim lossless quantized conversion.
+* What *is* proven exact is the **unquantized path**: BF16 GGUF → BF16 MLX
+  was verified tensor-identical (after float16 normalization) against
+  official exports on two architectures — see the validation section.
+
 ---
 
 ## Why this exists
@@ -107,12 +128,126 @@ and config-declared per-rule 8-bit overrides for the MoE router and
 shared-expert gate, and loaded/produced coherent chat generations.
 
 The current conversion of this source is the **3-bit `--bits auto` run**
-(14.14 GiB / 4 shards, verify ALL OK). Its capability-gate result is
-**FAIL — experimental only, NOT a recommended configuration**: the
-ARC-Challenge gate and the small-model 3-bit calibration both rejected a
-3-bit target for this source class (see `eval/bench/results/`). Converting
-qwen35moe + IQ3 sources at auto-derived 3 bits requires
-`--allow-experimental` until a calibrated group size passes the gate.
+(14.14 GiB / 4 shards, verify ALL OK). Its capability-gate result was
+**FAIL** for that source class (see `eval/bench/results/`). Converting
+IQ3/Q3 sources with `--bits auto` therefore emits a fidelity warning
+(today) — the conversion itself proceeds; see the section below.
+
+## Validation / Quantization Fidelity
+
+Three separate questions are validated with separate evidence. **Do not
+conflate them:** the unquantized path is proven exact; the quantized path is
+numerically equivalent to mlx-lm but inherits the fidelity of the target
+grid, and our paired-oracle experiments observed a strong 3-bit cliff.
+
+### 1. Converter correctness — BF16 paired-oracle proofs
+
+Method: convert the *same pinned BF16 GGUF* the official MLX export was
+built from, compare every tensor (`research/paired_oracle/compare_bf16.py`).
+
+| architecture | reference tensors matched | after f16 normalization | residual differences |
+|---|---|---|---|
+| Qwen3.5-0.8B (hybrid GDN) | **320/320** | 241 bit-equal + 79 norm tensors | all 79 are the *official export* rounding f32 norms to bf16; we keep f32 (strictly more faithful) |
+| Llama-3.2-1B (dense) | **146/146** | **146/146 equal** | none |
+
+Proven at BF16: tensor mapping, attention/GDN v-head reordering,
+`A_log = log(−unpermute(ssm_a))`, conv1d layout, NextN/MTP block drop, tied
+`lm_head`, and `config.json` semantics (27 common fields; our decoded
+`eos_token_id` is the correct instruct token while the official export's
+contradicts its own tokenizer config). The 153 reference-only tensors for
+Qwen3.5-0.8B are `vision_tower.*` — the official repo is a VLM export; this
+converter is text-only by design.
+
+**Verdict: the transcoder mapping itself is correct; subsequent quantized
+differences are attributable to quantization, not to conversion.**
+Details: [research/paired_oracle/REPORT_BF16_ORACLE.md](research/paired_oracle/REPORT_BF16_ORACLE.md).
+
+### 2. Quantizer equivalence with mlx-lm
+
+Converting the pinned BF16 GGUF at uniform 3-bit reproduces the *official
+MLX 3-bit* per-module error profile to **4+ significant digits** (e.g.
+GDN `in_proj_b` rel-L2 0.20442 vs 0.20443): the MLX quantization path here
+is numerically equivalent to mlx-lm's own requantization.
+
+Requantizing an existing Q3_K_M GGUF to MLX 3-bit ("double quantization")
+adds +6%…+13.5% per-module error, but behaviorally only **+0.03 nats/token**
+— the 3-bit *grid* loses the same information either way.
+
+### 3. 3-bit fidelity findings (paired-oracle calibration, Qwen3.5-0.8B)
+
+All candidates built from the same Q3_K_M GGUF (except the BF16→3-bit
+control); reference = official instruct BF16 (NLL 3.1375, ARC letter 41%).
+Level-1 gate = teacher-forced NLL/KL on pinned wikitext windows + ARC-100
+multiple-choice log-likelihood, no generation involved.
+
+| candidate | size | Δ CE (nats/token) | KL | ARC letter | verdict |
+|---|---|---|---|---|---|
+| uniform 3-bit (g64) | 341 MB | +1.007 | 0.956 | 34% | **3-bit cliff** |
+| mixed 3/4 (official-analog) | 382 MB | +0.769 | 0.699 | 26% | still 3.3× worse KL than 4-bit |
+| mixed 3/4 (sensitivity-informed) | 363 MB | +0.876 | 0.836 | 23% | worse than official-analog |
+| mixed 3/6 (official-analog) | 465 MB | +0.687 | 0.615 | 36% | bigger *and* worse than 4-bit |
+| mixed 3/6 (sensitivity-informed) | 343 MB | +1.019 | 0.963 | 36% | ≈ uniform 3-bit |
+| **uniform 4-bit (g64)** — official repo anchor | 447 MB | **+0.213** | **0.157** | 36% | **recommended** |
+| BF16 → 3-bit control (no double quantization) | 341 MB | +1.037 | 0.950 | 27% | isolates the grid as the cause |
+
+Observed conclusions from these experiments (stated as evidence, not as a
+universal claim about every model):
+
+* **A strong fidelity cliff at 3-bit**: ≈ +1.0 nat/token (≈ 2.8× perplexity)
+  regardless of whether the source is BF16 or Q3_K_M.
+* The cliff is **primarily attributable to the MLX affine 3-bit grid**, not
+  to double quantization (+0.03 nats) and not to the transcoder (§1, §2).
+* **Every 3-bit-containing profile tested is Pareto-dominated by plain
+  4-bit** — mixed 3/6 spends more bytes than uniform 4-bit and is still
+  3.2× worse in KL.
+* **Uniform 4-bit is clearly the reliable choice**; 6-bit improves further.
+* A QAT control pair (YoozLabs Qwen3.5-0.8B) decodes as
+  same-weights-different-format and confirms the thesis from the other
+  side: low-bit fidelity comes from grid-aligned QAT, not from PTQ.
+
+Because of this evidence, `--bits auto` for IQ3/Q3 sources prints the
+following warning while still converting:
+
+> MLX affine 3-bit conversion is supported, but our paired-oracle
+> experiments show substantial fidelity degradation at 3-bit. The
+> degradation is primarily attributable to the MLX affine 3-bit quantization
+> grid rather than the GGUF→MLX transcoder. For practical model quality,
+> 4-bit or higher is recommended.
+
+### 4. Generation-based capability gates (earlier experiments)
+
+ARC-Challenge-100 strict gate on converted outputs (recorded params,
+hash-verified prompts; full reports in `eval/reports/` and
+`eval/bench/results/`):
+
+Llama-3.2-1B-Instruct (Q4_K_M source), same source at several targets:
+
+| target | clean accuracy | anomaly rate | verdict |
+|---|---|---|---|
+| source GGUF (reference) | 48.0% | 0.0% | — |
+| 3-bit g32 | 31.0% | 3.0% | FAIL (−17 pp) |
+| 3-bit g64 | 29.0% | 8.0% | FAIL (−19 pp) |
+| 3-bit g128 | 31.0% | 9.0% | FAIL (−17 pp) |
+| **4-bit g64** | **47.0%** | 1.0% | **PASS** |
+| **6-bit g64** | **55.0%** | 0.0% | **PASS** |
+
+Qwen3.6-35B-A3B (IQ3_M source) at `--bits auto` → 3-bit: source 90.0% vs
+3-bit clean accuracy 55.0% (anomaly rate 41% vs 5%) — **FAIL**; the same
+source at 4-bit/6-bit passes. All four Q4_K_M/Q6_K families in the
+integration matrix above (§ "Integration evidence") load, generate coherently,
+and serve through oMLX.
+
+### Where the raw data lives
+
+* Paired-oracle study: `research/paired_oracle/REPORT_PAIRED_ORACLE.md`
+  (+ `REPORT_BF16_ORACLE.md`), profiles in
+  `research/paired_oracle/profiles/`, pinned-asset manifest in
+  `research/paired_oracle/manifest.py` (16 pinned assets, 16.65 GB; weights
+  and dataset text are never committed).
+* Capability gates: `eval/bench/results/FINAL_REPORT.md`,
+  `eval/bench/results/*/`, `eval/reports/*/`.
+* Reproduce the converter-vs-official comparisons with the tools in
+  `research/paired_oracle/` (`manifest.py` pins every revision + sha256).
 
 ## Scope boundaries
 
@@ -154,7 +289,8 @@ gguf2mlx-stream convert ~/models/qwen.gguf \
 # convert with target-bits auto-selection (the default): the byte-weighted
 # dominant source quant family picks the global MLX bit magnitude
 # (IQ2->2, IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); sources whose dominant family
-# has no MLX affine equivalent (Q5/IQ1/TQ) fail with an explicit error
+# has no MLX affine equivalent (Q5/IQ1/TQ) fail with an explicit error.
+# An auto-derived 3-bit target prints a fidelity warning and still converts.
 gguf2mlx-stream convert ~/models/iq3-model.gguf --output ./out-3bit-auto
 
 # verify output against source: every quantized tensor is numerically
@@ -179,7 +315,10 @@ bit magnitude plus the config's declared per-rule overrides — mixed source
 quantization is not replicated per tensor, and an unmappable dominant family
 refuses to convert rather than guessing. Note that "source IQ3" and "MLX
 affine 3-bit" are the same *target bit magnitude*, not bit-for-bit
-equivalent encodings.
+equivalent encodings. When `auto` resolves to 3 bits, a fidelity warning is
+printed to stderr and recorded in the output `config.json`
+(`quantization_selection.fidelity_warning`); the conversion itself proceeds —
+see [Validation / Quantization Fidelity](#validation--quantization-fidelity).
 
 The output contract is `mlx_lm.load(path)`. A conversion fails
 transactionally — never replacing an existing output — when the tokenizer

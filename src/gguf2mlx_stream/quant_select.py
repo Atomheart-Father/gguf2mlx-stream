@@ -21,8 +21,9 @@ bit magnitude*, not bit-for-bit equivalent encodings.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 from .constants import SUPPORTED_BITS
 from .errors import PlanError
@@ -84,8 +85,8 @@ def quant_histogram(
             frac = consumed_fraction(info, rows, in_mem)
             if frac <= 0.0:
                 continue
-            histogram[info.qtype.name] = histogram.get(info.qtype.name, 0) + int(
-                round(info.n_bytes * frac)
+            histogram[info.qtype.name] = histogram.get(info.qtype.name, 0) + round(
+                info.n_bytes * frac
             )
             counts[info.qtype.name] = counts.get(info.qtype.name, 0.0) + frac
     return histogram, counts
@@ -206,41 +207,26 @@ def select_target_bits(plan: Any, requested: str | int | None) -> BitsDecision:
     return decide_target_bits(histogram, requested, counts)
 
 
-# Auto-derived targets with failing capability-gate evidence. Keyed by
-# (architecture config id, dominant source family prefix). Until the gate
-# evidence flips to PASS for a calibrated profile, plain ``--bits auto``
-# refuses to produce these configurations; ``--allow-experimental`` or an
-# explicit ``--bits`` overrides the guard.
-EXPERIMENTAL_AUTO_TARGETS: dict[tuple[str, str], str] = {
-    ("qwen3_5_moe", "IQ3"): (
-        "auto-derived 3-bit for qwen35moe + IQ3 sources FAILED the "
-        "ARC-Challenge capability gate (2026-09-21: clean accuracy 55% vs "
-        "source 90%; Llama-1B 3-bit calibration also failed). 3-bit converts "
-        "correctly but is not a recommended default. Pass --allow-experimental "
-        "to convert anyway, or an explicit --bits to choose the target yourself."
-    ),
-}
+# Paired-oracle finding for auto-derived 3-bit targets. This is a warning,
+# not a blocker: same-bit auto (source IQ3/Q3 -> MLX 3-bit) is supported and
+# converts by default. The text states observed evidence, not a universal
+# claim about every model.
+THREE_BIT_FIDELITY_WARNING = (
+    "MLX affine 3-bit conversion is supported, but our paired-oracle "
+    "experiments show substantial fidelity degradation at 3-bit. The "
+    "degradation is primarily attributable to the MLX affine 3-bit "
+    "quantization grid rather than the GGUF->MLX transcoder. For practical "
+    "model quality, 4-bit or higher is recommended."
+)
 
 
-def experimental_guard(
-    plan: Any, decision: BitsDecision, allow_experimental: bool
-) -> dict[str, str] | None:
-    """Gate auto-derived targets with failing evidence.
+def auto_fidelity_warning(decision: BitsDecision) -> str | None:
+    """Return the fidelity warning for an auto-derived 3-bit target.
 
-    Returns an evidence marker to embed in the output record when the guard
-    applies and ``--allow-experimental`` was passed; raises
-    :class:`PlanError` when it applies and was not allowed; returns ``None``
-    when it does not apply (explicit bits, other architectures/families).
+    A warning only — never blocks conversion. Applies when ``--bits auto``
+    resolves to 3 bits (source IQ3*/Q3* dominant family); explicit ``--bits 3``
+    is the user's own choice and is not re-warned. Returns ``None`` otherwise.
     """
-    if decision.requested != "auto":
-        return None
-    arch_id = plan.config.architecture.id
-    for (arch, family), reason in EXPERIMENTAL_AUTO_TARGETS.items():
-        if arch == arch_id and (decision.dominant_type or "").startswith(family):
-            if allow_experimental:
-                return {"experimental": True, "experimental_reason": reason}
-            raise PlanError(
-                "--bits auto would silently produce an experimental, "
-                f"gate-failed configuration: {reason}"
-            )
+    if decision.requested == "auto" and decision.bits == 3:
+        return THREE_BIT_FIDELITY_WARNING
     return None

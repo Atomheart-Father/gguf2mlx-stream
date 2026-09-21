@@ -1,5 +1,13 @@
 # Paired-oracle study: GGUF→MLX requantization fidelity and 3-bit profiles
 
+> **Status update (phase-1 closing).** This report is the historical record
+> of the study. Its recommendation in §5 was resolved as follows: the
+> converter default keeps **same-bit auto** (IQ3/Q3 → MLX 3-bit); the
+> blocking guard was replaced by a fidelity warning (see README
+> "Validation / Quantization Fidelity"), and the IQ3→4-bit default change
+> was **not** applied. `--allow-experimental` no longer exists. §5 below is
+> preserved as written at study time.
+
 Branch: `research/paired-oracle-profiles` (from PR #2 HEAD `900045a`; PR #2
 remains frozen; converter defaults unchanged — the only converter addition is
 the opt-in `--quant-profile` flag with tests).

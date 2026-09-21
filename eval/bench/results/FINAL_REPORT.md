@@ -1,5 +1,11 @@
 # Final report: IQ3 → 3-bit conversion — capability vs. usability (2026-09-21)
 
+> **Status note (phase-1 closing):** the "Guard semantics" section below
+> describes behavior that was later superseded — the blocking guard and
+> `--allow-experimental` were replaced by a non-blocking fidelity warning
+> (same-bit auto converts and warns; see README "Validation / Quantization
+> Fidelity"). The measured results and gate verdicts are unchanged history.
+
 ## Decision
 
 **"3-bit can convert" is proven. "3-bit is usable and should be a default

@@ -23,17 +23,17 @@ import os
 import sys
 
 from .builtin import builtin_config_names, load_builtin_config, resolve_arch_config
+from .constants import SUPPORTED_BITS
 from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
-from .constants import SUPPORTED_BITS
 from .quant_profile import (
     QuantProfile,
     apply_quant_profile,
     load_quant_profile,
     resolve_default_bits,
 )
-from .quant_select import BitsDecision, experimental_guard, select_target_bits
+from .quant_select import BitsDecision, auto_fidelity_warning, select_target_bits
 from .runner import ConversionRunner, QuantSettings
 from .source.gguf import GGUFSource
 from .verifier import load_test, verify_conversion
@@ -192,21 +192,10 @@ def cmd_convert(args: argparse.Namespace) -> int:
     bits_record = decision.as_record()
     if profile:
         bits_record["quant_profile"] = profile.as_record()
-    try:
-        guard = experimental_guard(
-            plan, decision, allow_experimental=bool(args.allow_experimental)
-        )
-    except Gguf2MlxError as exc:
-        if args.dry_run:
-            print(f"[bits] EXPERIMENTAL GUARD (blocks conversion): {exc}")
-            guard = None
-        else:
-            raise
-    if guard:
-        bits_record.update(guard)
-        if not args.quiet:
-            print("[bits] EXPERIMENTAL: converting a gate-failed configuration "
-                  "by explicit request; recorded in the output config.json")
+    fidelity_warning = auto_fidelity_warning(decision)
+    if fidelity_warning:
+        bits_record["fidelity_warning"] = fidelity_warning
+        print(f"WARNING: {fidelity_warning}", file=sys.stderr)
     if not args.quiet:
         _print_bits_decision(decision, print)
         if args.dry_run:
@@ -262,7 +251,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 def cmd_verify(args: argparse.Namespace) -> int:
     source = GGUFSource(args.gguf)
-    config, desc = resolve_arch_config(args.arch_config, source.arch)
+    config, _ = resolve_arch_config(args.arch_config, source.arch)
     ref = _load_ref_config(args.source_config)
     plan = plan_conversion(config, source, ref_config=ref)
 
@@ -334,7 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="target quantization bits: 'auto' (default) derives the global bit "
         "magnitude from the byte-weighted source quant histogram (IQ2->2, "
         "IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); explicit 2/3/4/6/8 always wins; "
-        "sources with no mappable dominant family require an explicit value",
+        "sources with no mappable dominant family require an explicit value; "
+        "auto-derived 3-bit targets print a fidelity warning (see README)",
     )
     p.add_argument("--group-size", type=int, default=64)
     p.add_argument("--mode", default="affine", choices=("affine",))
@@ -349,11 +339,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="override shard size limit from the config")
     p.add_argument("--overwrite", action="store_true",
                    help="replace an existing non-empty output directory")
-    p.add_argument("--allow-experimental", action="store_true",
-                   help="permit auto-derived target-bits configurations that "
-                        "failed the capability gate (e.g. 3-bit for "
-                        "qwen35moe + IQ3 sources); the experimental status "
-                        "is recorded in the output config.json")
     p.add_argument("--chunk-mb", type=int, default=512,
                    help="dequantization chunk size in MiB (default 512)")
     p.add_argument("--quiet", "-q", action="store_true")

@@ -76,8 +76,10 @@ python eval/bench/score_arc.py --side src=... --side 3bit=... ... \
 
 **Gate conclusion (2026-09-21):** "3-bit can convert" is proven
 (14.14 GiB output, verify ALL OK, bounded RSS, coherent generation), but
-"3-bit is usable as a default" is rejected by the data. IQ3 → 3 stays an
-**explicit experimental option** — `--bits auto` for `qwen35moe` + IQ3
-sources is blocked behind `--allow-experimental` — and is **not** a
-default recommendation, until a calibrated configuration passes the gate.
-See `results/FINAL_REPORT.md`.
+"3-bit is usable as a default" is rejected by the data. These gates are the
+evidence behind the 3-bit fidelity warning that `--bits auto` emits for
+IQ3/Q3 sources today: same-bit auto **converts and warns** (phase-1
+closing policy; see README "Validation / Quantization Fidelity"), and
+4-bit or higher remains the practical recommendation. See
+`results/FINAL_REPORT.md` (its guard semantics section is superseded
+history).

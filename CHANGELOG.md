@@ -5,6 +5,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Phase-1 closing (mainline consolidation)
+
+- **`--bits auto` policy finalized to same-bit conversion**: the MLX target
+  bit magnitude equals the source GGUF's byte-dominant quant family
+  (IQ2/Q2→2, IQ3/Q3→3, IQ4/Q4→4, Q6→6, Q8→8); explicit `--bits` always wins.
+  The former blocking experimental guard is replaced by a **fidelity
+  warning**: auto-derived 3-bit targets convert normally and print the
+  paired-oracle warning to stderr, also recorded in the output
+  `config.json` (`quantization_selection.fidelity_warning`). The
+  `--allow-experimental` flag is removed (no longer needed).
+- **Validation / Quantization Fidelity documentation** in the README:
+  BF16 paired-oracle converter-correctness proofs (Qwen3.5-0.8B 320/320,
+  Llama-3.2-1B 146/146), quantizer equivalence with mlx-lm (4+ significant
+  digits), 3-bit fidelity findings table (uniform 3-bit, mixed 3/4, mixed
+  3/6, uniform 4-bit, BF16→3-bit control), generation-based capability
+  gates, and the QAT control. Research tooling and reports now live in the
+  repository under `research/paired_oracle/`.
+- **Linux CI fix**: `mlx[cpu]` is declared for Linux (the plain `mlx` wheel
+  ships no compute backend there); CI push trigger fixed to `master`.
+- **Lint brought to ruff 0.16.8-clean**: import ordering, deprecated
+  `typing` imports, unused variables/`noqa`s, narrow or annotated broad
+  exception handlers, `subprocess` `check` explicitness, executable bits
+  for scripts. No tests were skipped or weakened to achieve this.
+
+### Added (auto-bits + capability gate + research tooling)
+
+- **`--bits auto` target-bits selection** from a byte-weighted source
+  quant-family histogram over the plan's quantized jobs; evidence (dominant
+  type, histogram, reason) recorded in `--report-json` and the output
+  `config.json` under `quantization_selection`. Unmappable dominant
+  families (Q5/IQ1/TQ) fail with an explicit error; auto never guesses.
+- **ARC-Challenge benchmark harness** (`eval/bench/`): pinned 100-question
+  subset (canonical sha256), raw-completion protocol with recorded params,
+  strict anomaly taxonomy (loop/empty/format), source-vs-MLX scoring, and
+  committed result reports (`eval/bench/results/`, `eval/reports/`).
+- **Source-vs-MLX capability regression harness** (`eval/run_eval.py`,
+  `eval/score_eval.py`) with committed reports for Qwen3.6-35B-A3B and
+  Llama-3.2-1B.
+- **Opt-in `--quant-profile` overlay**: JSON profiles overriding per-rule
+  bits/group_size by destination-name regex (first match wins; drop/copy
+  rules untouched; unmatched patterns are reported). Data only — no code
+  execution from profiles. Used to reproduce official mixed 3/4 and 3/6
+  MLX builds in the paired-oracle study.
+- **Paired-oracle research tooling** (`research/paired_oracle/`): pinned
+  asset manifest, BF16 tensor comparison, MLX profile extraction, per-module
+  error attribution, and the fast NLL/KL + ARC-MC calibration gate, plus
+  the full reports (`REPORT_BF16_ORACLE.md`,
+  `REPORT_PAIRED_ORACLE.md`).
+
 ### Added
 
 - **`qwen35moe` architecture config** (`configs/qwen3_5_moe.yaml`): Qwen3.5

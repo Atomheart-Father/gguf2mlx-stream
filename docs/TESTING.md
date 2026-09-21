@@ -179,10 +179,14 @@ generation.
 
 The current JoyFox conversion is a **3-bit `--bits auto` run** (14.14 GiB /
 4 shards, peak RSS 12.06 GiB, verify ALL OK) whose capability-gate verdict
-is **FAIL — experimental only, never a recommendation**: the ARC-Challenge
+was **FAIL — experimental only, never a recommendation**: the ARC-Challenge
 100q gate and the Llama-1B 3-bit calibration both reject a 3-bit target
-for this source class (see `eval/bench/results/`). Auto-derived 3-bit for
-qwen35moe + IQ3 sources is blocked behind `--allow-experimental`.
+for this source class (see `eval/bench/results/`). As of the phase-1
+closing, same-bit auto is the final policy: auto-derived 3-bit targets
+**convert and print a fidelity warning** (also recorded in the output
+`config.json`); they are no longer blocked. See README
+"Validation / Quantization Fidelity" for the evidence and the exact
+warning text.
 
 ## H. Clean-install acceptance (release gate)
 

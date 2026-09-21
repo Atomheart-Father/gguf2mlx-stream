@@ -14,13 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from gguf import GGUFReader
-from gguf.constants import GGMLQuantizationType
-from safetensors.numpy import load_file
-
-from gguf2mlx_stream.cli import main as cli_main
-from gguf2mlx_stream.quantize import dequantize_weights, quantize_weights
-
 from conftest import (
     QK_K,
     build_q4_block,
@@ -30,6 +23,12 @@ from conftest import (
     write_gguf,
     write_minimal_tokenizer,
 )
+from gguf import GGUFReader
+from gguf.constants import GGMLQuantizationType
+from safetensors.numpy import load_file
+
+from gguf2mlx_stream.cli import main as cli_main
+from gguf2mlx_stream.quantize import dequantize_weights, quantize_weights
 
 ROOT = Path(__file__).resolve().parent.parent
 QWEN35_YAML = str(ROOT / "configs" / "qwen3_5.yaml")
@@ -195,7 +194,7 @@ def test_full_pipeline(tmp_path):
     out_dir = tmp_path / "out"
 
     # sanity: stored ne uses the llama.cpp (inner, rows) convention
-    tok = [t for t in GGUFReader(str(gguf_path)).tensors if t.name == "token_embd.weight"][0]
+    tok = next(t for t in GGUFReader(str(gguf_path)).tensors if t.name == "token_embd.weight")
     assert tuple(tok.shape) == (HIDDEN, VOCAB)
 
     rc = cli_main([
@@ -358,3 +357,55 @@ def test_convert_bits_auto_resolves_dominant_family(tmp_path):
     assert cfg2["quantization"]["bits"] == 4
     assert cfg2["quantization_selection"]["requested"] == "4"
     assert cfg2["quantization_selection"]["target_bits"] == 4
+
+
+def test_convert_bits_auto_3bit_warns_but_converts(tmp_path, monkeypatch, capsys):
+    """Final same-bit auto policy: an auto-derived 3-bit target converts
+    normally and emits a fidelity warning (stderr + output config.json);
+    explicit --bits is never re-warned."""
+    gguf_path, _, _, _ = build_fixture_gguf(tmp_path)
+
+    # force the dominant-family mapping to 3 bits (the fixture's dominant
+    # family is Q6_K -> 6); this simulates an IQ3/Q3-dominant source without
+    # needing Q3 block builders
+    import gguf2mlx_stream.quant_select as qs
+    monkeypatch.setattr(qs, "family_bits", lambda name: 3 if name.startswith(("Q", "IQ")) else None)
+
+    out_dir = tmp_path / "out-auto-3bit"
+    rc = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(out_dir),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-warn"),
+        "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc == 0, "auto 3-bit conversion must not be blocked"
+
+    err = capsys.readouterr().err
+    assert "WARNING" in err
+    assert "paired-oracle" in err
+    assert "4-bit or higher is recommended" in err
+
+    cfg = json.loads((out_dir / "config.json").read_text())
+    assert cfg["quantization"]["bits"] == 3
+    sel = cfg["quantization_selection"]
+    assert sel["requested"] == "auto"
+    assert sel["target_bits"] == 3
+    assert "4-bit or higher is recommended" in sel["fidelity_warning"]
+
+    # explicit --bits 3 is the user's own choice: no warning, same result
+    out_dir2 = tmp_path / "out-explicit-3bit"
+    rc2 = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(out_dir2),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-warn2"),
+        "--bits", "3", "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc2 == 0
+    assert "WARNING" not in capsys.readouterr().err
+    cfg2 = json.loads((out_dir2 / "config.json").read_text())
+    assert cfg2["quantization"]["bits"] == 3
+    assert "fidelity_warning" not in cfg2["quantization_selection"]

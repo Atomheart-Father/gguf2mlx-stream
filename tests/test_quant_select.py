@@ -5,18 +5,18 @@ from types import SimpleNamespace
 import pytest
 from gguf import GGMLQuantizationType as QT
 
+from gguf2mlx_stream.config.schema import SliceSpec
 from gguf2mlx_stream.constants import SUPPORTED_BITS
 from gguf2mlx_stream.errors import PlanError
 from gguf2mlx_stream.quant_select import (
-    experimental_guard,
     BitsDecision,
+    auto_fidelity_warning,
     consumed_fraction,
     decide_target_bits,
     family_bits,
     quant_histogram,
 )
 from gguf2mlx_stream.source.gguf import TensorInfo
-from gguf2mlx_stream.config.schema import SliceSpec
 
 MiB = 2**20
 
@@ -229,13 +229,8 @@ def test_supported_bits_constant_unchanged():
 
 
 # ---------------------------------------------------------------------------
-# experimental guard (auto + qwen35moe + IQ3)
+# auto 3-bit fidelity warning (warning only — same-bit auto always converts)
 # ---------------------------------------------------------------------------
-
-
-def _fake_plan(arch_id: str):
-    cfg = SimpleNamespace(architecture=SimpleNamespace(id=arch_id))
-    return SimpleNamespace(config=cfg)
 
 
 def _decision(requested: str, bits: int, dominant: str | None):
@@ -245,35 +240,35 @@ def _decision(requested: str, bits: int, dominant: str | None):
     )
 
 
-def test_guard_blocks_auto_iq3_qwen35moe():
-    plan = _fake_plan("qwen3_5_moe")
+def test_auto_3bit_warns_and_records():
     d = _decision("auto", 3, "IQ3_S")
-    with pytest.raises(PlanError, match="--allow-experimental"):
-        experimental_guard(plan, d, allow_experimental=False)
+    w = auto_fidelity_warning(d)
+    assert w is not None
+    # the warning states observed evidence and the recommendation, without
+    # claiming that 3-bit fails for every model
+    assert "paired-oracle" in w
+    assert "MLX affine 3-bit" in w
+    assert "GGUF->MLX transcoder" in w
+    assert "4-bit or higher is recommended" in w
+    assert "fails" not in w.lower()
+    rec = d.as_record() | {"fidelity_warning": w}
+    assert rec["fidelity_warning"] == w
+    assert rec["target_bits"] == 3
 
 
-def test_guard_allows_with_flag_and_records_marker():
-    plan = _fake_plan("qwen3_5_moe")
-    d = _decision("auto", 3, "IQ3_S")
-    marker = experimental_guard(plan, d, allow_experimental=True)
-    assert marker is not None and marker["experimental"] is True
-    rec = d.as_record() | (marker or {})
-    assert rec["experimental_reason"]
-    assert "ARC-Challenge" in rec["experimental_reason"]
+def test_warning_covers_all_q3_family_names():
+    for dominant in ("Q3_K_M", "IQ3_XXS", "IQ3_S", "Q3_K_S"):
+        assert auto_fidelity_warning(_decision("auto", 3, dominant)) is not None
 
 
-def test_guard_ignores_explicit_bits():
-    plan = _fake_plan("qwen3_5_moe")
-    assert experimental_guard(plan, _decision("3", 3, "IQ3_S"), False) is None
+def test_warning_ignores_explicit_bits():
+    assert auto_fidelity_warning(_decision("3", 3, "IQ3_S")) is None
 
 
-def test_guard_ignores_other_arch_or_family():
-    d = _decision("auto", 3, "IQ3_S")
-    assert experimental_guard(_fake_plan("qwen3_5"), d, False) is None
-    assert experimental_guard(_fake_plan("qwen3_5_moe"),
-                              _decision("auto", 4, "Q4_K"), False) is None
+def test_warning_ignores_other_bits():
+    for bits in (2, 4, 6, 8):
+        assert auto_fidelity_warning(_decision("auto", bits, "Q4_K")) is None
 
 
-def test_guard_ignores_non_iq3_dominant_on_qwen35moe():
-    plan = _fake_plan("qwen3_5_moe")
-    assert experimental_guard(plan, _decision("auto", 2, "IQ2_XS"), False) is None
+def test_warning_ignores_no_quantize():
+    assert auto_fidelity_warning(_decision("none", 0, "IQ3_S")) is None
