@@ -48,15 +48,28 @@ final text.
 
 ## Metrics (per pair)
 
-- **accuracy** per side over the 40 scored items, and the delta;
+- **gated accuracy** per side over the scored items, and the delta — the
+  scorer reads the *actual* `max_tokens`/`temp` recorded in each run record,
+  refuses to score if the two sides' recorded parameters differ, and counts
+  any blocking anomaly (truncation at the cap, repetition loop, empty or
+  garbled output) as incorrect **even when the expected keyword appears** —
+  an answer that loops into the token cap is not an instruction success;
+- **strict format constraints** — `number` requires exactly one number in
+  the final text, `all_colors` requires exactly the three requested colors
+  and no other color word, `one_word` / `yes_no` must match the whole final
+  text;
+- **anomaly taxonomy** — truncation, repetition loops, empty output, and
+  garbled text are reported as separate per-type counts (plus replacement /
+  control-char signals), not one lumped number;
 - **verdict agreement** — fraction of scored items where both sides are
   correct or both wrong (the converter-health signal);
 - **answer agreement** — surface-form equality of extracted final answers
   (strict; two checkpoints rarely phrase identically, so it is reported but
   not treated as a quality bar);
-- **anomaly rate** — empty output, garbled text (printable ratio /
-  replacement chars / control chars), suspect truncation at the cap;
 - **timing** — per-question wall and llama.cpp internal eval time.
+
+The scorer is exercised by unit tests under `tests/test_eval_scorer.py`
+(run with the repo's normal pytest suite / CI).
 
 ## Reproducing
 
@@ -72,25 +85,44 @@ python eval/score_eval.py --questions eval/questions.json \
 
 ## Published runs
 
-| pair | source accuracy | MLX accuracy | delta | verdict agreement | anomalies (src/mlx) |
+> **SUPERSEDED HISTORY — not a current recommendation.** The 35B run below
+> compared against the **4-bit MLX baseline**, which was the wrong target for
+> an IQ3-dominant source and has been deleted (moved to Trash on 2026-09-21;
+> the converter now auto-selects target bits, resolving this source to
+> 3-bit). The reports are kept as scorer-regression and methodology records
+> only.
+
+Scored with the **strict gate** (blocking anomalies incorrect; strict format
+checks; recorded `max_tokens` asserted identical across sides):
+
+| pair | gated accuracy src | gated accuracy mlx | delta | verdict agreement | anomalies (src/mlx) |
 |---|---|---|---|---|---|
-| JoyFox Qwen3.6-35B-A3B, i1-IQ3_M → MLX 4-bit | 95% (38/40) | 100% (40/40) | +5% | 95% | 2 / 6 |
-| Llama-3.2-1B-Instruct, Q4_K_M → MLX 4-bit | 75% (30/40) | 75% (30/40) | ±0 | 95% | 2 / 2 |
+| JoyFox Qwen3.6-35B-A3B, i1-IQ3_M → MLX 4-bit [superseded] | 67.5% (27/40) | 60.0% (24/40) | −7.5% | 87.5% | 2 (4.4%) / 6 (13.3%) |
+| Llama-3.2-1B-Instruct, Q4_K_M → MLX 4-bit | 42.5% (17/40) | 45.0% (18/40) | +2.5% | 92.5% | 3 (6.7%) / 4 (8.9%) |
 
-Findings:
+Under the earlier lenient scorer (keyword substring only, no anomaly gate)
+the same runs scored 95% vs 100% and 75% vs 75%; those figures must not be
+quoted as evidence of losslessness.
 
-- **No capability loss from conversion.** The 35B pair's only verdict flips
-  (`inst-03`, `inst-04`) are source-side instruction-format failures
-  (including a source-side repetition loop); the converted MLX model
-  answered them cleanly.
-- **Anomalies are temp-0 repetition loops, not corruption.** Zero garbled,
-  empty, or immediately-EOS outputs on either side; an MoE routing break
-  would show up as nonsense text and does not appear. The MLX 35B loops on
-  6/45 items vs 2/45 on the source — greedy decoding is chaotic after
-  requantization and a handful of trajectory flips in both directions is
-  the expected noise floor.
-- The 1B pair flips one item each way (`zh-cs-09`, `logic-01`) — weak-model
-  noise, net zero.
+Findings (strict-gate reading):
+
+- **Basic-question answer accuracy shows no drop, but this is NOT a
+  no-capability-loss result.** On the lenient keyword scoring the basic
+  (zh/en common-sense, math, logic) items showed no answer-accuracy drop
+  after conversion. However the **Q4 MLX 35B anomaly rate is 13.3%**
+  (6/45 items loop into the token cap under temp-0 greedy decoding, vs
+  4.4% for the source), and under the strict gate the MLX side scores
+  *below* the source (60.0% vs 67.5% gated accuracy; per-type anomaly
+  breakdown in the report). **不可称无能力损失** — conversion quality must be
+  argued from the gated benchmark (see `bench/`), not from keyword-contains
+  accuracy.
+- **Anomaly types are repetition loops and cap truncation — not corruption.**
+  Zero garbled, empty-after-think, or immediately-EOS outputs on either
+  side; an MoE routing break would show up as nonsense text and does not
+  appear. Greedy decoding is chaotic after requantization and a handful of
+  trajectory flips in both directions is the expected noise floor.
+- The 1B pair flips a small number of items both ways (weak-model noise);
+  its value is protocol calibration, not capability claims.
 
 ## Known limitations
 

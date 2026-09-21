@@ -118,7 +118,7 @@ def run_llamacpp(gguf: Path, questions: list[dict], max_tokens: int,
                 "eval_tokens": runs,
                 "returncode": proc.returncode,
                 "truncated_suspect": runs is not None and runs >= max_tokens - 2,
-                "max_tokens": max_tokens, "temp": 0.0,
+                "max_tokens": max_tokens, "temp": 0.0, "ctx": ctx,
             }
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             fh.flush()

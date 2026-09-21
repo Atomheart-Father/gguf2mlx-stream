@@ -1,27 +1,35 @@
 # Capability regression: Llama-3.2-1B-Instruct (source Q4_K_M vs converted MLX 4-bit)
 
-- source: llama-completion 0.4.1, Llama-3.2-1B-Instruct-Q4_K_M.gguf, temp 0, max_tokens 512, --jinja (GGUF-embedded template), no thinking
-- MLX: mlx-lm via gguf2mlx-stream llama conversion, temp 0, max_tokens 512, tokenizer chat template, no thinking
-- protocol: identical chat template semantics (GGUF-embedded template vs the tokenizer files derived from it), single user turn with no system prompt on both sides, temp 0, max_tokens 1536, thinking enabled (template default) on both sides, scored over the post-<think> text
-- note: Secondary cheap regression pair exercising the llama config path. Qwen3.5-0.8B was rejected as the small pair: its temp-0 thinking loops to the token cap on both sides, making all items truncated and uninformative.
+- source: llama-completion 0.4.1, Llama-3.2-1B-Instruct-Q4_K_M.gguf, temp 0, max_tokens 512, --jinja, no thinking
+- MLX: mlx-lm via gguf2mlx-stream llama conversion (4-bit, from local .integration-models fixture), temp 0, max_tokens 512, tokenizer chat template, no thinking
+- protocol: identical chat template semantics (GGUF-embedded template vs the tokenizer files derived from it), single user turn with no system prompt on both sides, temp 0, max_tokens 512 (recorded in every run record and asserted identical across sides), thinking enabled (template default) on both sides, scored over the post-<think> text
+- scoring gate: truncated / repetition-loop / empty / garbled outputs count as incorrect regardless of contained keywords; format checks are strict (single number, exactly three colors, one word, yes/no)
+- note: Small-model protocol calibration pair. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict; single number, exactly three colors, one word, yes/no).
 
 ## Summary
 
 | metric | source | MLX |
 |---|---|---|
-| accuracy (40 scored) | 75.0% | 75.0% |
-| accuracy delta (MLX − source) | | +0.0% |
-| anomaly rate (45 items) | 4.4% | 4.4% |
+| gated accuracy (40 scored) | 42.5% | 45.0% |
+| accuracy delta (MLX − source) | | +2.5% |
+| anomaly rate (45 items) | 4.4% | 6.7% |
 | total gen time (s) | 33.5 | 14.7 |
 
-Answer agreement rate (surface form): **22.2%** · verdict agreement on scored items: **95.0%** (flips: zh-cs-09, logic-01)
+Answer agreement rate (surface form): **22.2%** · verdict agreement on scored items: **92.5%** (flips: zh-cs-09, en-cs-07, logic-01)
+
+Anomaly breakdown (items affected, per type):
+
+| type | source | MLX |
+|---|---|---|
+| repetition_loop | 1 | 2 |
+| truncated | 2 | 2 |
 
 | category | n | source | MLX |
 |---|---|---|---|
-| en_common | 10 | 10/10 | 10/10 |
+| en_common | 10 | 7/10 | 8/10 |
 | instruction | 5 | 1/5 | 1/5 |
-| logic | 5 | 3/5 | 4/5 |
-| math | 10 | 10/10 | 10/10 |
+| logic | 5 | 2/5 | 3/5 |
+| math | 10 | 1/10 | 1/10 |
 | zh_common | 10 | 6/10 | 5/10 |
 
 ## Per-question results
@@ -92,7 +100,7 @@ Answer agreement rate (surface form): **22.2%** · verdict agreement on scored i
 大熊猫的主要食物是鱼和其他海洋生 vật。
 ```
 
-### zh-cs-07 — src ⚠truncated_suspect / mlx ✗ / agree NO
+### zh-cs-07 — src ⚠repetition_loop,truncated / mlx ✗ / agree NO
 - gold: 吴承恩
 - source (3.18s):
 ```
@@ -147,7 +155,7 @@ The capital of France is Paris.
 The capital of France is Paris.
 ```
 
-### en-cs-02 — src ✓ / mlx ✓ / agree NO
+### en-cs-02 — src ✗ / mlx ✗ / agree NO
 - gold: 366
 - source (0.65s):
 ```
@@ -191,7 +199,7 @@ The largest planet in our solar system is Jupiter. It is a gas giant, meaning it
 The largest planet in our solar system is Jupiter. It has a diameter of approximately 142,984 kilometers (88,846 miles). Jupiter is a gas giant, meaning it is primarily composed of hydrogen and helium gases. It is the fifth planet from the Sun and is known for its distinctive banded appearance, which is caused by strong winds in its atmosphere.
 ```
 
-### en-cs-06 — src ✓ / mlx ✓ / agree NO
+### en-cs-06 — src ✗ / mlx ✗ / agree NO
 - gold: 0
 - source (0.56s):
 ```
@@ -202,7 +210,7 @@ Water freezes at 0 degrees Celsius (°C) or 32 degrees Fahrenheit (°F).
 Water freezes at 0 degrees Celsius (or 32 degrees Fahrenheit).
 ```
 
-### en-cs-07 — src ✓ / mlx ✓ / agree NO
+### en-cs-07 — src ✗ / mlx ✓ / agree NO
 - gold: 7
 - source (0.63s):
 ```
@@ -262,7 +270,7 @@ Spiders have eight legs.
 Spiders have eight legs.
 ```
 
-### math-01 — src ✓ / mlx ✓ / agree NO
+### math-01 — src ✗ / mlx ✗ / agree NO
 - gold: 43
 - source (0.61s):
 ```
@@ -281,7 +289,7 @@ To calculate 17 + 26, we need to add the two numbers together.
 The result of the addition is 43.
 ```
 
-### math-02 — src ✓ / mlx ✓ / agree NO
+### math-02 — src ✗ / mlx ✗ / agree NO
 - gold: 144
 - source (0.62s):
 ```
@@ -300,7 +308,7 @@ To calculate 12 × 12, we multiply 12 by 12.
 So, 12 × 12 equals 144.
 ```
 
-### math-03 — src ✓ / mlx ✓ / agree NO
+### math-03 — src ✗ / mlx ✗ / agree NO
 - gold: 12
 - source (0.63s):
 ```
@@ -319,7 +327,7 @@ To calculate 144 ÷ 12, we need to perform the division operation.
 So, the result of the division is 12.
 ```
 
-### math-04 — src ✓ / mlx ✓ / agree NO
+### math-04 — src ✗ / mlx ✗ / agree NO
 - gold: 30
 - source (0.66s):
 ```
@@ -338,7 +346,7 @@ To find 15% of 200, you multiply 200 by 0.15.
 So, 15% of 200 is 30.
 ```
 
-### math-05 — src ✓ / mlx ✓ / agree yes
+### math-05 — src ✗ / mlx ✗ / agree yes
 - gold: 9
 - source (0.52s):
 ```
@@ -349,7 +357,7 @@ The square root of 81 is 9.
 The square root of 81 is 9.
 ```
 
-### math-06 — src ✓ / mlx ✓ / agree NO
+### math-06 — src ✗ / mlx ✗ / agree NO
 - gold: 1024
 - source (0.98s):
 ```
@@ -371,7 +379,7 @@ So, 2 raised to the power of 10 is 1024.
 ```
 - mlx (1.03s):
 ```
-2 raised to the power of 10 is 2^10. 
+2 raised to the power of 10 is 2^10.
 
 To calculate this, we multiply 2 by itself 10 times:
 
@@ -398,7 +406,7 @@ To calculate this, we multiply 2 by itself 10 times:
 So, 2 raised to the power of 10 is 1048576.
 ```
 
-### math-07 — src ✓ / mlx ✓ / agree NO
+### math-07 — src ✗ / mlx ✗ / agree NO
 - gold: x = 4
 - source (0.84s):
 ```
@@ -433,7 +441,7 @@ x = 4
 So, the value of x is 4.
 ```
 
-### math-08 — src ✓ / mlx ⚠truncated_suspect / agree NO
+### math-08 — src ✗ / mlx ⚠truncated / agree NO
 - gold: 12
 - source (1.34s):
 ```
@@ -452,7 +460,7 @@ To find the least common multiple (LCM) of 4 and 6, we need to find the smallest
 The multiples of 4 are: 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 68, 72, 76, 80, 84, 88, 92, 96, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 148, 152, 156, 160, 164, 168, 172, 176, 180, 184, 188, 192, 196, 200, 204, 208, 212, 216, 220, 224, 228, 232, 236, 240, 244, 248, 252, 256, 260, 264, 268, 272, 276, 280, 284, 288, 292, 296, 300, 304, 308, 312, 316, 320, 324, 328, 332, 336, 340, 344, 348, 352, 356, 360, 364, 368, 372, 376, 380, 384, 388, 392, 396, 400, 404, 408, 412, 416, 420, 424, 428, 432, 436, 440, 444, 448, 452, 456, 460, 464, 468, 472, 476, 480, 484, 488, 492, 496, 500, 504, 508, 512, 516, 520, 524, 528, 532, 536, 540, 544, 548, 552, 556, 560, 564, 568, 572, 576, 580, 584, 588, 592, 596, 600, 604, 608, 612, 616, 620, 624,
 ```
 
-### math-09 — src ✓ / mlx ✓ / agree NO
+### math-09 — src ✗ / mlx ✗ / agree NO
 - gold: 125
 - source (0.65s):
 ```
@@ -502,7 +510,7 @@ Yes.
 * 小明比小红高
 * 小红比小刚高
 
-这意味着小红比小刚矮。由于小红比小刚矮，我们可以推断出小红矮于小刚。 
+这意味着小红比小刚矮。由于小红比小刚矮，我们可以推断出小红矮于小刚。
 
 因此，答案是：小红矮于小刚。
 ```
@@ -558,7 +566,7 @@ So, the youngest is C.
 C
 ```
 
-### logic-05 — src ⚠truncated_suspect / mlx ✓ / agree NO
+### logic-05 — src ⚠truncated / mlx ✗ / agree NO
 - gold: 6
 - source (2.81s):
 ```
@@ -617,7 +625,7 @@ Red, Blue, Yellow
 Red, Blue, and Yellow
 ```
 
-### inst-04 — src ✗ / mlx ✗ / agree NO
+### inst-04 — src ✗ / mlx ⚠repetition_loop / agree NO
 - gold: 熊猫（≤5字）
 - source (0.54s):
 ```
@@ -672,7 +680,7 @@ People wear coats in winter to protect themselves from the cold temperatures, wh
 People wear coats in winter to protect themselves from the cold temperatures and to provide insulation and warmth. The coat also serves as a barrier between the wearer and the cold, keeping them dry and comfortable.
 ```
 
-### open-04 — src ✓ / mlx ⚠truncated_suspect / agree NO
+### open-04 — src ✓ / mlx ⚠repetition_loop,truncated / agree NO
 - gold: (open — anomaly screening only)
 - source (0.81s):
 ```
