@@ -1,64 +1,83 @@
-# Declarative architecture config: Qwen3.5 hybrid text models (qwen3_5_text).
+# Declarative architecture config: Qwen3.5 hybrid text models.
 #
-# Applies to compatible Qwen3.5 dense/hybrid finetunes exported by
-# llama.cpp-style GGUF writers: gated DeltaNet (GDN) linear attention layers
-# interleaved with full attention every `full_attention_interval` layers, plus
-# a trailing MTP/next-token-prediction block that is dropped for the proven
-# MLX inference layout.
+# Applies to llama.cpp GGUF exports of the Qwen3.5 family (hybrid gated
+# DeltaNet linear-attention layers interleaved with full attention every
+# `full_attention_interval` layers).
 #
-# Non-obvious conventions preserved from the golden reference conversion
-# (all numerically verified against the original HF BF16 checkpoint):
+# Identifier: current llama.cpp writes general.architecture = "qwen35" with
+# architecture-prefixed metadata (qwen35.ssm.*). The legacy "qwen3_5_text"
+# identifier (early community exports using linear_* metadata keys) is kept
+# as a secondary alias; such files must either carry nextn metadata or be
+# converted with --source-config for num_hidden_layers.
 #
-# 1. RMSNorm "+1": llama.cpp bakes the +1 into norm weights. Norms are copied
-#    verbatim (no +1 applied here; mlx-lm's qwen3_5 sanitize does not re-add
-#    one either for this layout).
-# 2. GDN v-head permutation: llama.cpp stores v-head tensors as
-#    concat(hf[0::2], hf[1::2]) over the value-head axis; the
-#    `qwen35_v_head_unpermute` plugin inverts it (in_proj_qkv v-rows,
-#    in_proj_z rows, in_proj_a/b rows with block 1, out_proj cols, conv1d
-#    v-rows, dt_bias with block 1).
+# Non-obvious conventions (numerically verified against the reference
+# conversion):
+#
+# 1. RMSNorm "+1": llama.cpp bakes the +1 into norm weights. Norms are
+#    shipped verbatim; because conv1d is written in sanitized (dim,k,1)
+#    form and no mtp keys are present, mlx-lm's qwen3_5 sanitize does NOT
+#    re-add one.
+# 2. GDN v-head permutation: llama.cpp stores v-head tensors in
+#    group-interleaved order concat(hf[j::ratio] for j in range(ratio)),
+#    ratio = value heads / kv-head groups (2 for Qwen3.5-9B, 1 for 0.8B).
+#    The `qwen35_v_head_unpermute` plugin resolves the geometry from dims
+#    and delegates to the generic reorder_grouped_heads operator.
 # 3. A_log: GGUF ssm_a holds -exp(A_log) in GGUF head order, hence the
-#    pipeline unzip -> neg -> log.
+#    pipeline unpermute -> neg -> log.
 # 4. conv1d: (dim, k) -> (dim, k, 1) via unsqueeze(-1).
-# 5. MTP block (blk.{mtp_layer}.*) is explicitly DROPPED, not silently
-#    ignored: the drop rule below is what makes unmapped tensors legal.
-# 6. Output config uses model_type "qwen3_5" with text fields nested under
-#    "text_config" — "qwen3_5_text" is not importable by current mlx-lm.
+# 5. MTP/NextN: blocks [n_layers, total_blocks) are explicitly DROPPED via
+#    a range drop rule driven by nextn_predict_layers — never by silently
+#    falling outside layer coverage.
+# 6. Embeddings may be tied (0.8B) or untied (9B); tie_word_embeddings is
+#    derived from the presence of output.weight, and the lm_head rule is
+#    optional.
+# 7. Output config uses model_type "qwen3_5" with text fields nested under
+#    "text_config" for the current mlx-lm line. All fields the runtime
+#    reads are emitted explicitly (see required_fields) — nothing is left
+#    to mlx-lm defaults.
 
 architecture:
   id: qwen3_5
   aliases: [qwen3_5_text]
-  gguf_arch: qwen3_5_text
+  gguf_arch: [qwen35, qwen3_5_text]
   description: >
     Qwen3.5 hybrid text model (GDN linear attention + periodic full
     attention) in llama.cpp GGUF layout.
 
-# Dimensions resolve from GGUF metadata first, then from an optional
-# reference config.json (--source-config). List values are fallback chains.
+# Dimensions resolve from GGUF metadata first; list values are fallback
+# chains. GGUF-only conversion (no reference config) is the normal path.
 dims:
   hidden_size: [gguf:embedding_length, ref:hidden_size]
-  n_layers: [gguf:block_count, ref:num_hidden_layers]
-  vocab_size: [gguf:vocab_size, ref:vocab_size]
+  total_blocks: [gguf:block_count]
+  nextn_predict_layers: [gguf:nextn_predict_layers, 0]
+  # llama.cpp block_count INCLUDES NextN/MTP blocks.
+  n_layers: [{sub: [gguf:block_count, nextn_predict_layers]}, ref:num_hidden_layers]
+  vocab_size: [gguf:vocab_size, tshape:token_embd.weight.0, ref:vocab_size]
   n_heads: [gguf:attention.head_count, ref:num_attention_heads]
   n_kv_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
   head_dim: [gguf:attention.key_length, ref:head_dim]
   intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
-  linear_num_key_heads: [gguf:linear_num_key_heads, ref:linear_num_key_heads]
-  linear_key_head_dim: [gguf:linear_key_head_dim, ref:linear_key_head_dim]
-  linear_num_value_heads: [gguf:linear_num_value_heads, ref:linear_num_value_heads]
-  linear_value_head_dim: [gguf:linear_value_head_dim, ref:linear_value_head_dim]
-  linear_conv_kernel_dim: [gguf:linear_conv_kernel_dim, ref:linear_conv_kernel_dim]
+  linear_num_key_heads: [gguf:ssm.group_count, gguf:linear_num_key_heads, ref:linear_num_key_heads]
+  linear_key_head_dim: [gguf:ssm.state_size, gguf:linear_key_head_dim, ref:linear_key_head_dim]
+  linear_num_value_heads: [gguf:ssm.time_step_rank, gguf:linear_num_value_heads, ref:linear_num_value_heads]
+  # per-head value dim = ssm.inner_size / v-heads
+  linear_value_head_dim: [{div: [gguf:ssm.inner_size, gguf:ssm.time_step_rank]}, gguf:linear_value_head_dim, ref:linear_value_head_dim]
+  linear_conv_kernel_dim: [gguf:ssm.conv_kernel, gguf:linear_conv_kernel_dim, ref:linear_conv_kernel_dim]
+  full_attention_interval: [gguf:full_attention_interval, ref:full_attention_interval, 4]
   key_dim: {mul: [linear_num_key_heads, linear_key_head_dim]}
   value_dim: {mul: [linear_num_value_heads, linear_value_head_dim]}
   conv_dim: {add: [{mul: [2, key_dim]}, value_dim]}
-  mtp_layer: [gguf:block_count, ref:num_hidden_layers]
+  rms_norm_eps: [gguf:attention.layer_norm_rms_epsilon, ref:rms_norm_eps]
+  rope_theta: [gguf:rope.freq_base, ref:rope_parameters.rope_theta]
+  rope_dim: [gguf:rope.dimension_count, ref:rope_parameters.partial_rotary_factor]
 
 rules:
-  # ---- MTP / next-token-prediction block: explicitly dropped (first rule
-  # wins, so blk.{mtp_layer}.* never reaches the layer rules below) ----
+  # ---- MTP / next-token-prediction blocks: explicitly dropped via the
+  # reserved {i} range form (first rule wins). Empty when nextn=0. ----
   - name: mtp_drop
-    match: "blk\\.{mtp_layer}\\..*"
+    match: "blk\\.{i}\\..*"
     drop: true
+    range: {start: n_layers, end: total_blocks}
 
   # ---- global ----
   - name: embeddings
@@ -70,6 +89,7 @@ rules:
     match: "output\\.weight"
     dest: "language_model.lm_head.weight"
     expect_shape: [vocab_size, hidden_size]
+    optional: true
 
   - name: final_norm
     match: "output_norm\\.weight"
@@ -112,7 +132,7 @@ rules:
   - name: full_attn_o
     match: "blk\\.(?P<n>\\d+)\\.attn_output\\.weight"
     dest: "language_model.model.layers.{n}.self_attn.o_proj.weight"
-    expect_shape: [hidden_size, hidden_size]
+    expect_shape: [hidden_size, {mul: [n_heads, head_dim]}]
 
   - name: full_attn_q_norm
     match: "blk\\.(?P<n>\\d+)\\.attn_q_norm\\.weight"
@@ -242,22 +262,70 @@ output:
   architectures: ["Qwen3_5ForCausalLM"]
   nest_config_under: text_config
   top_level:
-    tie_word_embeddings: false
+    # tied when the GGUF has no standalone output.weight (e.g. 0.8B)
+    tie_word_embeddings: {not: [has:output.weight]}
   text_config:
-    hidden_size: [gguf:embedding_length, ref:hidden_size]
-    num_hidden_layers: [gguf:block_count, ref:num_hidden_layers]
-    vocab_size: [gguf:vocab_size, ref:vocab_size]
-    num_attention_heads: [gguf:attention.head_count, ref:num_attention_heads]
-    num_key_value_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
-    head_dim: [gguf:attention.key_length, ref:head_dim]
-    intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
+    hidden_size: [hidden_size]
+    num_hidden_layers: [n_layers]
+    vocab_size: [vocab_size]
+    num_attention_heads: [n_heads]
+    num_key_value_heads: [n_kv_heads]
+    head_dim: [head_dim]
+    intermediate_size: [intermediate_size]
+    linear_num_value_heads: [linear_num_value_heads]
+    linear_num_key_heads: [linear_num_key_heads]
+    linear_key_head_dim: [linear_key_head_dim]
+    linear_value_head_dim: [linear_value_head_dim]
+    linear_conv_kernel_dim: [linear_conv_kernel_dim]
+    full_attention_interval: [full_attention_interval]
+    # mirrors top-level tie_word_embeddings: mlx-lm reads it from the
+    # text-config args when constructing the model
+    tie_word_embeddings: {not: [has:output.weight]}
+    rms_norm_eps: [rms_norm_eps]
+    max_position_embeddings: [gguf:context_length, ref:max_position_embeddings]
+    attention_bias: [gguf:attention.bias, false]
+    attention_dropout: 0.0
+    attn_output_gate: true
+    hidden_act: silu
+    rope_parameters:
+      rope_type: default
+      rope_theta: [rope_theta]
+      partial_rotary_factor: [{div: [rope_dim, head_dim]}]
+    eos_token_id: [gguf:tokenizer.ggml.eos_token_id, ref:eos_token_id, null]
+    bos_token_id: [gguf:tokenizer.ggml.bos_token_id, ref:bos_token_id, null]
+    pad_token_id: [gguf:tokenizer.ggml.pad_token_id, ref:pad_token_id, null]
+  required_fields:
+    - tie_word_embeddings
+    - text_config.hidden_size
+    - text_config.num_hidden_layers
+    - text_config.vocab_size
+    - text_config.num_attention_heads
+    - text_config.num_key_value_heads
+    - text_config.head_dim
+    - text_config.intermediate_size
+    - text_config.linear_num_value_heads
+    - text_config.linear_num_key_heads
+    - text_config.linear_key_head_dim
+    - text_config.linear_value_head_dim
+    - text_config.linear_conv_kernel_dim
+    - text_config.full_attention_interval
+    - text_config.rms_norm_eps
+    - text_config.max_position_embeddings
+    - text_config.attention_bias
+    - text_config.attention_dropout
+    - text_config.attn_output_gate
+    - text_config.hidden_act
+    - text_config.rope_parameters.rope_theta
+    - text_config.rope_parameters.partial_rotary_factor
   reference_config:
-    drop_fields: [architectures, model_name, unsloth_version]
+    drop_fields: [architectures, model_name, unsloth_version, rope_parameters,
+                  attention_bias, attention_dropout, attn_output_gate, hidden_act]
   tokenizer_files:
     - tokenizer.json
     - tokenizer_config.json
     - chat_template.jinja
     - generation_config.json
+    - special_tokens_map.json
     - merges.txt
     - vocab.json
   max_shard_bytes: 4294967296

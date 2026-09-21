@@ -219,6 +219,41 @@ def op_unzip_blocks(inputs, order, args, ctx: OpContext) -> np.ndarray:
     return _unblock(out, rest, axis, x.shape)
 
 
+@register_op(
+    "reorder_grouped_heads",
+    kind="permute",
+    summary=(
+        "Undo group-interleaved head storage for ``heads/heads_kv = ratio`` groups: "
+        "storage order is concat(natural[j::ratio] for j in range(ratio)); restores "
+        "natural order. ratio=1 is identity, ratio=2 equals ``unzip_blocks``."
+    ),
+    params=(
+        ("axis", "axis holding the head blocks"),
+        ("block", "block size along that axis (per-head rows/cols; 1 for vectors)"),
+        ("ratio", "value heads per key-value group (>= 1); default 2"),
+    ),
+)
+def op_reorder_grouped_heads(inputs, order, args, ctx: OpContext) -> np.ndarray:
+    axis, block = int(args["axis"]), int(args["block"])
+    ratio = int(args.get("ratio", 2))
+    if ratio < 1:
+        raise ValueError(f"reorder_grouped_heads: ratio must be >= 1, got {ratio}")
+    x = _x(inputs, order)
+    v, rest = _block_view(x, axis, block)
+    n = v.shape[0]  # total head blocks (value heads)
+    if n % ratio != 0:
+        raise ValueError(
+            f"reorder_grouped_heads: {n} head blocks not divisible by ratio {ratio}"
+        )
+    if ratio == 1:
+        return np.ascontiguousarray(x)
+    k = n // ratio  # key-value head groups
+    idx = np.arange(n)
+    gguf_index = (idx % ratio) * k + idx // ratio
+    out = np.ascontiguousarray(v.take(gguf_index, axis=0))
+    return _unblock(out, rest, axis, x.shape)
+
+
 def _unary(name: str, fn):
     def run(inputs, order, args, ctx: OpContext) -> np.ndarray:
         return fn(np.asarray(_x(inputs, order), dtype=np.float32))

@@ -35,3 +35,6 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# integration model fixtures (never committed)
+.integration-models/

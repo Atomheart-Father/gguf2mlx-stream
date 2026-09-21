@@ -25,8 +25,12 @@ import yaml
 from ..errors import ConfigError
 from ..ops import all_ops
 
-# A scalar value spec: int | float | bool | None | str | list | {mul/add/sub/div: [...]}
-_ARITH_OPS = ("mul", "add", "sub", "div")
+# A scalar value spec: int | float | bool | None | str | list | {mul/add/sub/div/not: [...]}
+# String forms: "gguf:<key>" (GGUF metadata, arch-prefixed fallback),
+# "ref:<dotted.path>" (reference config), "tshape:<tensor>.<axis>" (source
+# tensor shape), "has:<tensor>" (tensor existence), a named dimension, or a
+# plain constant.
+_ARITH_OPS = ("mul", "add", "sub", "div", "not")
 
 
 def _err(where: str, msg: str) -> ConfigError:
@@ -38,12 +42,12 @@ def _err(where: str, msg: str) -> ConfigError:
 # ---------------------------------------------------------------------------
 
 
-def _validate_scalar_spec(v: Any, where: str) -> None:
+def _validate_scalar_spec(v: Any, where: str, allow_mapping: bool = False) -> None:
     if v is None or isinstance(v, (bool, int, float)):
         return
     if isinstance(v, str):
-        if v.startswith(("gguf:", "ref:")):
-            if len(v) <= 4:
+        if v.startswith(("gguf:", "ref:", "tshape:", "has:")):
+            if len(v) <= 5:
                 raise _err(where, f"empty reference {v!r}")
             return
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v):
@@ -55,18 +59,32 @@ def _validate_scalar_spec(v: Any, where: str) -> None:
         )
     if isinstance(v, list):
         for i, item in enumerate(v):
-            _validate_scalar_spec(item, f"{where}[{i}]")
+            _validate_scalar_spec(item, f"{where}[{i}]", allow_mapping)
         return
     if isinstance(v, dict):
-        if len(v) != 1 or next(iter(v)) not in _ARITH_OPS:
-            raise _err(
-                where,
-                f"arithmetic spec must be a single {list(_ARITH_OPS)} key, got {sorted(v)}",
-            )
-        operands = next(iter(v.values()))
-        if not isinstance(operands, list) or len(operands) < 1:
-            raise _err(where, "arithmetic operands must be a non-empty list")
-        _validate_scalar_spec(operands, where)
+        # explicit literal-list form: {list: [<scalar spec>, ...]}
+        if set(v) == {"list"}:
+            items = v["list"]
+            if not isinstance(items, list) or not items:
+                raise _err(where, "{list: [...]} requires a non-empty list of scalar specs")
+            _validate_scalar_spec(items, where, allow_mapping)
+            return
+        if len(v) == 1 and next(iter(v)) in _ARITH_OPS:
+            operands = next(iter(v.values()))
+            if not isinstance(operands, list) or len(operands) < 1:
+                raise _err(where, "arithmetic operands must be a non-empty list")
+            _validate_scalar_spec(operands, where, allow_mapping)
+            return
+        # plain nested mapping (e.g. rope_parameters, rope_scaling): every
+        # value must itself be a scalar spec; arithmetic keys stay reserved.
+        for k, item in v.items():
+            if k in _ARITH_OPS:
+                raise _err(
+                    f"{where}.{k}",
+                    "arithmetic keys are reserved; use exactly one "
+                    "mul/add/sub/div/not key with a list of operands",
+                )
+            _validate_scalar_spec(item, f"{where}.{k}", allow_mapping)
         return
     raise _err(where, f"unsupported value spec type {type(v).__name__}")
 
@@ -110,6 +128,11 @@ class Rule:
     expect_shape: tuple[Any | None, ...] | None = None
     inputs: Mapping[str, InputSlot] | None = None
     steps: tuple[OpStep, ...] = ()
+    # drop rules may instead declare an explicit half-open block-index range
+    # [start, end): every tensor whose name starts with "blk.{i}." for i in
+    # range is dropped. end <= start matches nothing (e.g. nextn=0).
+    # The match pattern uses the reserved {i} placeholder.
+    block_range: tuple[Any, Any] | None = None
 
     @property
     def display_name(self) -> str:
@@ -126,6 +149,10 @@ class OutputSpec:
     ref_drop_fields: tuple[str, ...] = ()
     tokenizer_files: tuple[str, ...] = ()
     max_shard_bytes: int = 4 * 2**30
+    # dotted paths that must resolve to a non-null value in the final
+    # config.json (e.g. "text_config.hidden_size"). Conversion fails loudly
+    # instead of silently relying on mlx-lm defaults.
+    required_fields: tuple[str, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -138,9 +165,18 @@ class Coverage:
 class Architecture:
     id: str
     aliases: tuple[str, ...]
-    gguf_arch: str | None
+    # accepted general.architecture identifier(s) in the source GGUF.
+    # A tuple lists accepted variants (current llama.cpp identifier first).
+    gguf_arch: str | tuple[str, ...] | None
     strict_arch: bool
     description: str
+
+    def accepts(self, gguf_arch: str) -> bool:
+        if self.gguf_arch is None:
+            return True
+        if isinstance(self.gguf_arch, str):
+            return gguf_arch == self.gguf_arch
+        return gguf_arch in self.gguf_arch
 
 
 @dataclasses.dataclass(frozen=True)
@@ -261,7 +297,7 @@ def _parse_steps(raw: Any, where: str, inputs: Mapping[str, InputSlot] | None) -
 
 _RULE_KEYS = (
     "name", "match", "dest", "drop", "optional", "quantize", "dtype",
-    "expect_shape", "inputs", "steps",
+    "expect_shape", "inputs", "steps", "range",
 )
 
 
@@ -293,6 +329,23 @@ def _parse_rule(raw: Any, idx: int) -> Rule:
             raise _err(where, "non-drop rules require a 'dest' template")
     if "dest" in raw and dest is not None and drop:
         raise _err(where, "drop rules must not have 'dest'")
+    block_range = None
+    if "range" in raw:
+        if not drop:
+            raise _err(where, "'range' is only valid on drop rules")
+        rng = raw["range"]
+        if not isinstance(rng, dict) or set(rng) != {"start", "end"}:
+            raise _err(where, "range must be a mapping with exactly 'start' and 'end'")
+        _validate_scalar_spec(rng["start"], f"{where}.range.start")
+        _validate_scalar_spec(rng["end"], f"{where}.range.end")
+        block_range = (rng["start"], rng["end"])
+        if "{i}" not in match:
+            raise _err(
+                where,
+                "range drop rules must use the reserved {i} placeholder in 'match'",
+            )
+    elif drop and "{i}" in match:
+        raise _err(where, "{i} is reserved for range drop rules")
     name = raw.get("name")
     if name is not None and not isinstance(name, str):
         raise _err(where, "rule.name must be a string")
@@ -321,6 +374,7 @@ def _parse_rule(raw: Any, idx: int) -> Rule:
         expect_shape=expect_shape,
         inputs=inputs_p,
         steps=steps,
+        block_range=block_range,
     )
 
 
@@ -339,6 +393,7 @@ def _parse_output(raw: Any, where: str) -> OutputSpec:
             "reference_config",
             "tokenizer_files",
             "max_shard_bytes",
+            "required_fields",
         ):
             raise _err(where, f"unknown output key {key!r}")
     archs = raw.get("architectures", [])
@@ -348,7 +403,7 @@ def _parse_output(raw: Any, where: str) -> OutputSpec:
     if not isinstance(tc, dict):
         raise _err(f"{where}.text_config", "must be a mapping")
     for k, v in tc.items():
-        _validate_scalar_spec(v, f"{where}.text_config.{k}")
+        _validate_scalar_spec(v, f"{where}.text_config.{k}", allow_mapping=True)
     top = raw.get("top_level", {})
     if not isinstance(top, dict):
         raise _err(f"{where}.top_level", "must be a mapping")
@@ -364,6 +419,14 @@ def _parse_output(raw: Any, where: str) -> OutputSpec:
     msb = int(raw.get("max_shard_bytes", 4 * 2**30))
     if msb <= 0:
         raise _err(f"{where}.max_shard_bytes", "must be positive")
+    req_fields = raw.get("required_fields", [])
+    if not isinstance(req_fields, list) or not all(
+        isinstance(f, str) and f for f in req_fields
+    ):
+        raise _err(
+            f"{where}.required_fields",
+            "must be a list of non-empty dotted config.json paths",
+        )
     return OutputSpec(
         model_type=raw.get("model_type"),
         architectures=tuple(archs),
@@ -373,6 +436,7 @@ def _parse_output(raw: Any, where: str) -> OutputSpec:
         ref_drop_fields=drops,
         tokenizer_files=tok_files,
         max_shard_bytes=msb,
+        required_fields=tuple(req_fields),
     )
 
 
@@ -390,10 +454,19 @@ def arch_config_from_dict(raw: Any, path: str = "<config>") -> ArchConfig:
     for key in arch_raw:
         if key not in ("id", "aliases", "gguf_arch", "strict_arch", "description"):
             raise ConfigError(f"{path}: unknown architecture key {key!r}")
+    gguf_arch = arch_raw.get("gguf_arch")
+    if isinstance(gguf_arch, list):
+        if not gguf_arch or not all(isinstance(a, str) and a for a in gguf_arch):
+            raise ConfigError(
+                f"{path}: gguf_arch list must be non-empty strings (current identifier first)"
+            )
+        gguf_arch = tuple(str(a) for a in gguf_arch)
+    elif gguf_arch is not None and not isinstance(gguf_arch, str):
+        raise ConfigError(f"{path}: gguf_arch must be a string or list of strings")
     arch = Architecture(
         id=str(arch_raw["id"]),
         aliases=tuple(str(a) for a in arch_raw.get("aliases", ())),
-        gguf_arch=arch_raw.get("gguf_arch"),
+        gguf_arch=gguf_arch,
         strict_arch=bool(arch_raw.get("strict_arch", False)),
         description=str(arch_raw.get("description", "")),
     )

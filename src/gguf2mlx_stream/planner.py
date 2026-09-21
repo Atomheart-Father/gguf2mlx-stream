@@ -25,20 +25,32 @@ from .source.gguf import GGUFSource, TensorInfo
 # dimension resolution
 # ---------------------------------------------------------------------------
 
-_ARITH = {"mul", "add", "sub", "div"}
-_FN = {
-    "mul": lambda xs: _fold(xs, lambda a, b: a * b),
-    "add": lambda xs: sum(xs),
-    "sub": lambda xs: _fold(xs, lambda a, b: a - b),
-    "div": lambda xs: _fold(xs, lambda a, b: a // b),
-}
-
-
 def _fold(xs: list[int], fn) -> int:
     out = xs[0]
     for x in xs[1:]:
         out = fn(out, x)
     return out
+
+
+def _div(xs: list) -> int | float:
+    """Exact integer division when it divides evenly, float division otherwise."""
+    out = xs[0]
+    for x in xs[1:]:
+        if isinstance(out, int) and isinstance(x, int) and x != 0 and out % x == 0:
+            out = out // x
+        else:
+            out = out / x
+    return out
+
+
+_ARITH = {"mul", "add", "sub", "div", "not"}
+_FN = {
+    "mul": lambda xs: _fold(xs, lambda a, b: a * b),
+    "add": lambda xs: sum(xs),
+    "sub": lambda xs: _fold(xs, lambda a, b: a - b),
+    "div": _div,
+    "not": lambda xs: (not xs[0]),
+}
 
 
 class DimResolver:
@@ -52,10 +64,10 @@ class DimResolver:
     def resolve(self, spec: Any, where: str, dims_so_far: Mapping[str, int]) -> Any:
         """Resolve a scalar spec to an int/float/str/bool/list for use at runtime.
 
-        A list spec is an ordered *fallback chain*: entries are tried in
+        A plain list spec is an ordered *fallback chain*: entries are tried in
         order and the first one that resolves successfully wins. (Literal
         list values are reachable via ``ref:`` paths into the reference
-        config.)
+        config, or via the explicit ``{list: [...]}`` literal-list form.)
         """
         if spec is None or isinstance(spec, (bool, int, float)):
             return spec
@@ -85,25 +97,51 @@ class DimResolver:
                         )
                     node = node[part]
                 return node
+            if spec.startswith("tshape:"):
+                body = spec[len("tshape:"):]
+                name, _, axis = body.rpartition(".")
+                try:
+                    info = self._source.info(name)
+                except Exception as exc:
+                    raise PlanError(f"{where}: {exc}") from None
+                if not name or not axis.lstrip("-").isdigit():
+                    raise PlanError(f"{where}: tshape spec must be 'tshape:<tensor>.<axis>'")
+                idx = int(axis)
+                shape = info.hf_shape
+                if not (-len(shape) <= idx < len(shape)):
+                    raise PlanError(
+                        f"{where}: tshape axis {idx} out of range for {name!r} {shape}"
+                    )
+                return int(shape[idx])
+            if spec.startswith("has:"):
+                return spec[len("has:"):] in self._source.tensors
             if spec in dims_so_far:
                 return dims_so_far[spec]
             return spec  # plain string constant
-        if isinstance(spec, list):
-            return [self.resolve(item, where, dims_so_far) for item in spec]
         if isinstance(spec, dict):
-            (op, operands), = spec.items()
-            values = [self.resolve(o, where, dims_so_far) for o in operands]
-            if not all(isinstance(v, int) for v in values):
-                raise PlanError(f"{where}: arithmetic over non-integers: {values}")
-            return _FN[op](values)
+            # explicit literal-list form: every element is a scalar spec and
+            # the result is the resolved list itself (not a fallback chain)
+            if set(spec) == {"list"}:
+                return [self.resolve(item, where, dims_so_far) for item in spec["list"]]
+            if len(spec) == 1 and next(iter(spec)) in _ARITH:
+                (op, operands), = spec.items()
+                values = [self.resolve(o, where, dims_so_far) for o in operands]
+                if not all(isinstance(v, (int, float)) or isinstance(v, bool) for v in values):
+                    raise PlanError(f"{where}: arithmetic over non-numeric values: {values}")
+                return _FN[op](values)
+            # plain nested mapping: resolve every value
+            return {
+                k: self.resolve(v, f"{where}.{k}", dims_so_far)
+                for k, v in spec.items()
+            }
         raise PlanError(f"{where}: cannot resolve value spec {spec!r}")
 
-    def resolve_dims(self, specs: Mapping[str, Any]) -> dict[str, int]:
-        dims: dict[str, int] = {}
+    def resolve_dims(self, specs: Mapping[str, Any]) -> dict[str, int | float]:
+        dims: dict[str, int | float] = {}
         for name, spec in specs.items():
             value = self.resolve(spec, f"dims.{name}", dims)
-            if not isinstance(value, int):
-                raise PlanError(f"dims.{name}: expected int, got {value!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise PlanError(f"dims.{name}: expected a number, got {value!r}")
             dims[name] = value
         return dims
 
@@ -194,9 +232,17 @@ class ConversionPlan:
 # ---------------------------------------------------------------------------
 
 
-def _substitute_dims(pattern: str, dims: Mapping[str, int], where: str) -> str:
+class _RangeMatch:
+    """Truthiness-only match marker for range drop rules (no capture groups)."""
+
+
+def _substitute_dims(
+    pattern: str, dims: Mapping[str, int], where: str, reserved: tuple[str, ...] = ()
+) -> str:
     def repl(m: re.Match) -> str:
         name = m.group(1)
+        if name in reserved:
+            return m.group(0)
         if name not in dims:
             raise PlanError(f"{where}: pattern placeholder {{{name}}} is not a known dim")
         return str(dims[name])
@@ -237,7 +283,7 @@ def plan_conversion(
 ) -> ConversionPlan:
     """Compile ``config`` against ``source`` into a validated ConversionPlan."""
     a = config.architecture
-    if a.gguf_arch and source.arch != a.gguf_arch:
+    if a.gguf_arch is not None and not a.accepts(source.arch):
         msg = (
             f"GGUF general.architecture is {source.arch!r}, config {a.id!r} expects "
             f"{a.gguf_arch!r}"
@@ -250,15 +296,35 @@ def plan_conversion(
     dims = resolver.resolve_dims(config.dims)
 
     # compile rules
-    compiled: list[tuple[Rule, re.Pattern]] = []
+    compiled: list[tuple[Rule, Any]] = []
     for rule in config.rules:
         where = f"rule {rule.display_name!r}"
-        pattern = _substitute_dims(rule.match, dims, where)
-        try:
-            rx = re.compile(pattern)
-        except re.error as exc:
-            raise PlanError(f"{where}: invalid regex after dim substitution: {exc}") from None
-        compiled.append((rule, rx))
+        if rule.block_range is not None:
+            start = resolver.resolve(rule.block_range[0], f"{where}.range.start", dims)
+            end = resolver.resolve(rule.block_range[1], f"{where}.range.end", dims)
+            if not isinstance(start, int) or not isinstance(end, int):
+                raise PlanError(f"{where}: range bounds must resolve to ints")
+            prefixes = tuple(f"blk.{i}." for i in range(start, end))
+            if prefixes:
+
+                def _match(name: str, _ps=prefixes) -> re.Match | None:
+                    return _RangeMatch() if any(name.startswith(p) for p in _ps) else None
+
+            else:
+
+                def _match(name: str, _ps=prefixes) -> re.Match | None:
+                    return None
+
+            compiled.append((rule, _match))
+        else:
+            pattern = _substitute_dims(rule.match, dims, where)
+            try:
+                rx = re.compile(pattern)
+            except re.error as exc:
+                raise PlanError(
+                    f"{where}: invalid regex after dim substitution: {exc}"
+                ) from None
+            compiled.append((rule, lambda name, _rx=rx: _rx.fullmatch(name)))
 
     jobs: list[PlannedJob] = []
     dest_map: dict[str, str] = {}
@@ -270,8 +336,8 @@ def plan_conversion(
         if tensor.name in consumed:
             continue
         job_for_tensor = None
-        for rule, rx in compiled:
-            m = rx.fullmatch(tensor.name)
+        for rule, match_fn in compiled:
+            m = match_fn(tensor.name)
             if not m:
                 continue
             if rule.drop:

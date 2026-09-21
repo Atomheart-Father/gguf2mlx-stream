@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gguf2mlx-stream"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Declarative, bounded-memory GGUF -> MLX-LM checkpoint streaming transcoder"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,27 +12,31 @@ license = { text = "MIT" }
 authors = [{ name = "gguf2mlx-stream contributors" }]
 keywords = ["gguf", "mlx", "mlx-lm", "quantization", "conversion", "llama.cpp"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+# Version floors below are the minimums actually validated for this release
+# (mlx 0.29.1, gguf 0.19.0 and current numpy/safetensors pass the full test
+# suite); older versions are untested, newer are expected to work.
 dependencies = [
     "numpy>=1.26",
-    "gguf>=0.10",
+    "gguf>=0.19.0",
     "pyyaml>=6.0",
-    "mlx>=0.29",
+    "mlx>=0.29.1",
     "safetensors>=0.4",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
-loadtest = ["mlx-lm>=0.31"]
+loadtest = ["mlx-lm>=0.31.3"]
 
 [project.scripts]
 gguf2mlx-stream = "gguf2mlx_stream.cli:main"

@@ -1,0 +1,183 @@
+# Declarative architecture config: Qwen3 dense models (arch "qwen3").
+#
+# Standard dense transformer — intentionally expressed with the same generic
+# rule vocabulary as every other family (this config exercises that the
+# engine generalizes beyond the Qwen3.5 hybrid). GGUF-only conversion is the
+# normal path; a reference config is never required.
+#
+# Notes:
+# - Qwen3 has per-head QK-norms (1-D, shape (head_dim,)) shipped verbatim.
+# - Small Qwen3 checkpoints are typically tied (no output.weight in GGUF);
+#   tie_word_embeddings is derived from output.weight presence and the
+#   lm_head rule is optional.
+# - rope_scaling is passed through from --source-config when provided and
+#   otherwise null. GGUF metadata carries no rope-scaling fields; models
+#   that rely on scaling beyond the original context (e.g. YaRN) will only
+#   differ at positions past that threshold (documented limitation).
+
+architecture:
+  id: qwen3
+  gguf_arch: qwen3
+  description: >
+    Qwen3 dense text model in llama.cpp GGUF layout.
+
+dims:
+  hidden_size: [gguf:embedding_length, ref:hidden_size]
+  n_layers: [gguf:block_count, ref:num_hidden_layers]
+  vocab_size: [gguf:vocab_size, tshape:token_embd.weight.0, ref:vocab_size]
+  n_heads: [gguf:attention.head_count, ref:num_attention_heads]
+  n_kv_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
+  head_dim: [gguf:attention.key_length, ref:head_dim]
+  intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
+  rms_norm_eps: [gguf:attention.layer_norm_rms_epsilon, ref:rms_norm_eps]
+  rope_theta: [gguf:rope.freq_base, ref:rope_theta]
+
+rules:
+  - name: embeddings
+    match: "token_embd\\.weight"
+    dest: "model.embed_tokens.weight"
+    expect_shape: [vocab_size, hidden_size]
+
+  - name: lm_head
+    match: "output\\.weight"
+    dest: "lm_head.weight"
+    expect_shape: [vocab_size, hidden_size]
+    optional: true
+
+  - name: final_norm
+    match: "output_norm\\.weight"
+    dest: "model.norm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: input_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.attn_norm\\.weight"
+    dest: "model.layers.{n}.input_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # Qwen3 names the pre-FFN norm "ffn_norm" (it is the post-attention
+  # layernorm in the HF/MLX residual stream)
+  - name: post_attention_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.ffn_norm\\.weight"
+    dest: "model.layers.{n}.post_attention_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: attn_q
+    match: "blk\\.(?P<n>\\d+)\\.attn_q\\.weight"
+    dest: "model.layers.{n}.self_attn.q_proj.weight"
+    expect_shape: [{mul: [n_heads, head_dim]}, hidden_size]
+
+  - name: attn_k
+    match: "blk\\.(?P<n>\\d+)\\.attn_k\\.weight"
+    dest: "model.layers.{n}.self_attn.k_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: attn_v
+    match: "blk\\.(?P<n>\\d+)\\.attn_v\\.weight"
+    dest: "model.layers.{n}.self_attn.v_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: attn_o
+    match: "blk\\.(?P<n>\\d+)\\.attn_output\\.weight"
+    dest: "model.layers.{n}.self_attn.o_proj.weight"
+    expect_shape: [hidden_size, {mul: [n_heads, head_dim]}]
+
+  - name: q_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_q_norm\\.weight"
+    dest: "model.layers.{n}.self_attn.q_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  - name: k_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_k_norm\\.weight"
+    dest: "model.layers.{n}.self_attn.k_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  - name: ffn_gate
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate\\.weight"
+    dest: "model.layers.{n}.mlp.gate_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_up
+    match: "blk\\.(?P<n>\\d+)\\.ffn_up\\.weight"
+    dest: "model.layers.{n}.mlp.up_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_down
+    match: "blk\\.(?P<n>\\d+)\\.ffn_down\\.weight"
+    dest: "model.layers.{n}.mlp.down_proj.weight"
+    expect_shape: [hidden_size, intermediate_size]
+
+coverage:
+  per_layer_required:
+    - model.layers.{layer}.input_layernorm.weight
+    - model.layers.{layer}.post_attention_layernorm.weight
+    - model.layers.{layer}.self_attn.q_norm.weight
+    - model.layers.{layer}.self_attn.k_norm.weight
+    - model.layers.{layer}.mlp.gate_proj.weight
+    - model.layers.{layer}.mlp.up_proj.weight
+    - model.layers.{layer}.mlp.down_proj.weight
+  per_layer_alternatives:
+    - - model.layers.{layer}.self_attn.q_proj.weight
+
+output:
+  model_type: qwen3
+  architectures: ["Qwen3ForCausalLM"]
+  top_level:
+    tie_word_embeddings: {not: [has:output.weight]}
+  text_config:
+    hidden_size: [hidden_size]
+    num_hidden_layers: [n_layers]
+    vocab_size: [vocab_size]
+    num_attention_heads: [n_heads]
+    num_key_value_heads: [n_kv_heads]
+    head_dim: [head_dim]
+    intermediate_size: [intermediate_size]
+    rms_norm_eps: [rms_norm_eps]
+    max_position_embeddings: [gguf:context_length, ref:max_position_embeddings]
+    rope_theta: [rope_theta]
+    rope_scaling: [ref:rope_scaling, null]
+    tie_word_embeddings: {not: [has:output.weight]}
+    attention_bias: [gguf:attention.bias, false]
+    attention_dropout: 0.0
+    hidden_act: silu
+    eos_token_id: [gguf:tokenizer.ggml.eos_token_id, ref:eos_token_id, null]
+    bos_token_id: [gguf:tokenizer.ggml.bos_token_id, ref:bos_token_id, null]
+    pad_token_id: [gguf:tokenizer.ggml.pad_token_id, ref:pad_token_id, null]
+  required_fields:
+    - tie_word_embeddings
+    - hidden_size
+    - num_hidden_layers
+    - vocab_size
+    - num_attention_heads
+    - num_key_value_heads
+    - head_dim
+    - intermediate_size
+    - rms_norm_eps
+    - max_position_embeddings
+    - rope_theta
+    - rope_scaling
+    - tie_word_embeddings
+    - attention_bias
+    - attention_dropout
+    - hidden_act
+  reference_config:
+    drop_fields: [architectures, model_type, rope_scaling, attention_bias,
+                  attention_dropout, hidden_act, tie_word_embeddings,
+                  bos_token_id, eos_token_id, pad_token_id]
+  tokenizer_files:
+    - tokenizer.json
+    - tokenizer_config.json
+    - generation_config.json
+    - special_tokens_map.json
+    - merges.txt
+    - vocab.json
+  max_shard_bytes: 4294967296

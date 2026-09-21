@@ -65,6 +65,7 @@ def test_shard_writer_splits_and_indexes(tmp_path):
 
 
 def test_build_output_config():
+    # flat families merge text fields at the top level
     cfg = build_output_config(
         model_type="m",
         architectures=["A"],
@@ -73,7 +74,14 @@ def test_build_output_config():
         quantization={"bits": 4, "group_size": 64, "mode": "affine"},
     )
     assert cfg["model_type"] == "m"
-    assert cfg["text_config"] == {"hidden_size": 4}
+    assert cfg["hidden_size"] == 4
+    assert "text_config" not in cfg
     assert cfg["quantization"] == cfg["quantization_config"]
+    # nested families place fields under nest_under
+    cfg_nest = build_output_config(
+        model_type="m", architectures=["A"], top_level={},
+        text_config={"hidden_size": 4}, quantization=None, nest_under="text_config",
+    )
+    assert cfg_nest["text_config"] == {"hidden_size": 4}
     cfg2 = build_output_config("m", ["A"], {}, {}, None)
     assert "quantization" not in json.dumps(cfg2)

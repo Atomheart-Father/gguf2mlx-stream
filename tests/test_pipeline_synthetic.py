@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from gguf import GGUFReader
 from gguf.constants import GGMLQuantizationType
 from safetensors.numpy import load_file
@@ -39,7 +40,7 @@ QWEN35_YAML = str(ROOT / "configs" / "qwen3_5.yaml")
 HIDDEN = 256
 VOCAB = 512
 N_LAYERS = 2  # layer 0: linear attention, layer 1: full attention
-MTP = N_LAYERS  # blk.2.* must be dropped
+MTP = N_LAYERS  # blk.2.* must be dropped (nextn_predict_layers=1)
 INTER = 512
 N_HEADS, HEAD_DIM = 8, 32
 N_KV = 2
@@ -49,20 +50,27 @@ KEY_DIM = NK * DK                   # 256
 VALUE_DIM = NV * DV                 # 256
 CONV_DIM = 2 * KEY_DIM + VALUE_DIM  # 768
 CONV_K = 2
+ROPE_DIM = 8  # partial_rotary_factor = 8/32 = 0.25
 
+# current llama.cpp qwen35 metadata conventions (arch-prefixed, ssm.*)
 META = {
     "embedding_length": HIDDEN,
-    "block_count": N_LAYERS,
-    "vocab_size": VOCAB,
+    "block_count": N_LAYERS + 1,  # includes the NextN/MTP block
+    "nextn_predict_layers": 1,
     "attention.head_count": N_HEADS,
     "attention.head_count_kv": N_KV,
     "attention.key_length": HEAD_DIM,
+    "attention.layer_norm_rms_epsilon": 1e-5,
     "feed_forward_length": INTER,
-    "linear_num_key_heads": NK,
-    "linear_key_head_dim": DK,
-    "linear_num_value_heads": NV,
-    "linear_value_head_dim": DV,
-    "linear_conv_kernel_dim": CONV_K,
+    "context_length": 4096,
+    "full_attention_interval": 2,
+    "rope.freq_base": 1000000.0,
+    "rope.dimension_count": ROPE_DIM,
+    "qwen35.ssm.group_count": NK,
+    "qwen35.ssm.state_size": DK,
+    "qwen35.ssm.time_step_rank": NV,
+    "qwen35.ssm.inner_size": VALUE_DIM,
+    "qwen35.ssm.conv_kernel": CONV_K,
 }
 
 
@@ -169,7 +177,7 @@ def build_fixture_gguf(tmp_path):
 
     path = write_gguf(
         tmp_path / "tiny.gguf",
-        arch="qwen3_5_text",
+        arch="qwen35",
         metadata=META,
         f32_tensors=f32,
         quant_tensors=[
@@ -206,9 +214,34 @@ def test_full_pipeline(tmp_path):
     assert cfg["model_type"] == "qwen3_5"
     assert cfg["architectures"] == ["Qwen3_5ForCausalLM"]
     assert cfg["quantization"] == {"bits": 4, "group_size": 64, "mode": "affine"}
-    assert cfg["text_config"]["hidden_size"] == HIDDEN
-    assert cfg["text_config"]["num_hidden_layers"] == N_LAYERS
-    assert "linear_num_value_heads" not in cfg["text_config"]  # needs a ref config
+    tc = cfg["text_config"]
+    assert tc["hidden_size"] == HIDDEN
+    assert tc["num_hidden_layers"] == N_LAYERS
+    assert tc["vocab_size"] == VOCAB  # resolved from token_embd shape (tshape spec)
+    assert tc["linear_num_value_heads"] == NV
+    assert tc["linear_num_key_heads"] == NK
+    assert tc["linear_key_head_dim"] == DK
+    assert tc["linear_value_head_dim"] == DV
+    assert tc["full_attention_interval"] == 2
+    assert tc["rms_norm_eps"] == pytest.approx(1e-5)  # f32 round-trip through GGUF
+    assert tc["max_position_embeddings"] == 4096
+    assert tc["attention_bias"] is False
+    assert tc["attention_dropout"] == 0.0
+    assert tc["attn_output_gate"] is True
+    assert tc["hidden_act"] == "silu"
+    assert tc["rope_parameters"]["rope_theta"] == 1000000.0
+    assert tc["rope_parameters"]["partial_rotary_factor"] == ROPE_DIM / HEAD_DIM
+    assert cfg["tie_word_embeddings"] is False  # output.weight present
+    def dig(d, dotted):
+        node = d
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                return None
+            node = node[part]
+        return node
+
+    assert all(dig(cfg, f) is not None for f in [
+        "tie_word_embeddings", "text_config.hidden_size", "text_config.vocab_size"])
 
     all_keys = set(wm)
     assert not any(f".layers.{MTP}." in k or "mtp" in k.lower() for k in all_keys)

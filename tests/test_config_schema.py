@@ -103,9 +103,23 @@ def test_arith_spec_accepted():
 
 
 def test_bad_arith_rejected():
-    raw = minimal_config(dims={"a": {"mod": [2, 3]}})
+    # reserved arithmetic key mixed into a plain mapping is rejected
+    raw = minimal_config(dims={"a": {"mul": [2, 3], "b": 1}})
     with pytest.raises(ConfigError):
         arch_config_from_dict(raw)
+    # a mapping of invalid scalar specs is rejected
+    raw = minimal_config(dims={"a": {"b": "not a spec!"}})
+    with pytest.raises(ConfigError):
+        arch_config_from_dict(raw)
+
+
+def test_plain_nested_mapping_spec_allowed():
+    # non-arithmetic mappings are legal nested specs (e.g. rope_parameters)
+    raw = minimal_config(dims={"a": 1},
+                         output={"text_config": {"rope_parameters": {
+                             "rope_type": "default", "factor": [2, 3]}}})
+    cfg = arch_config_from_dict(raw)
+    assert cfg.output.text_config["rope_parameters"]["rope_type"] == "default"
 
 
 def test_unknown_rule_and_output_keys():

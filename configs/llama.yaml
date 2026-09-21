@@ -1,0 +1,196 @@
+# Declarative architecture config: Llama family (arch "llama").
+#
+# Family-level config for llama.cpp Llama exports (Llama 3.x and friends):
+# standard attention with GQA, RoPE, RMSNorm, SwiGLU MLP. No core engine
+# code is version-specific; family traits that GGUF does not carry (the
+# llama3-style rope-scaling constants) are declared here as data with a
+# --source-config override path.
+#
+# Notes:
+# - llama.cpp writes a derived `rope_freqs.weight` inv-freq buffer that has
+#   no MLX counterpart (RoPE is computed at runtime); it is explicitly
+#   dropped.
+# - Llama 3.2 1B ties embeddings (no output.weight); the lm_head rule is
+#   optional and tie_word_embeddings is derived from its presence.
+# - llama.cpp permutes the OUT axis of attn_q/attn_k at convert time (both
+#   axes of the row index within each head block: natural row h*head_dim+d
+#   + (head_dim/2)*c is stored as h*head_dim + 2*d + c). The inverse is a
+#   pure reshape/transpose/reshape chain over generic operators; verified
+#   numerically against the HF checkpoint (attn_v/o are NOT permuted).
+# - rope_scaling: passed through from --source-config when provided;
+#   otherwise the Llama-3.2 1B family constants are emitted so that the
+#   runtime RoPE matches the original checkpoint (mlx-lm supports
+#   rope_type "llama3").
+
+architecture:
+  id: llama
+  gguf_arch: llama
+  description: >
+    Llama family dense text model in llama.cpp GGUF layout.
+
+dims:
+  hidden_size: [gguf:embedding_length, ref:hidden_size]
+  n_layers: [gguf:block_count, ref:num_hidden_layers]
+  vocab_size: [gguf:vocab_size, tshape:token_embd.weight.0, ref:vocab_size]
+  n_heads: [gguf:attention.head_count, ref:num_attention_heads]
+  n_kv_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
+  head_dim: [gguf:attention.key_length, ref:head_dim]
+  intermediate_size: [gguf:feed_forward_length, ref:intermediate_size]
+  rms_norm_eps: [gguf:attention.layer_norm_rms_epsilon, ref:rms_norm_eps]
+  rope_theta: [gguf:rope.freq_base, ref:rope_theta]
+
+rules:
+  # llama.cpp-derived inv-freq buffer: not a model parameter in MLX
+  - name: rope_freqs_drop
+    match: "rope_freqs\\..*"
+    drop: true
+
+  - name: embeddings
+    match: "token_embd\\.weight"
+    dest: "model.embed_tokens.weight"
+    expect_shape: [vocab_size, hidden_size]
+
+  - name: lm_head
+    match: "output\\.weight"
+    dest: "lm_head.weight"
+    expect_shape: [vocab_size, hidden_size]
+    optional: true
+
+  - name: final_norm
+    match: "output_norm\\.weight"
+    dest: "model.norm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: input_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.attn_norm\\.weight"
+    dest: "model.layers.{n}.input_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: post_attention_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.ffn_norm\\.weight"
+    dest: "model.layers.{n}.post_attention_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # llama.cpp stores q rows head-dim-major: within each head block the
+  # natural row d + (head_dim/2)*c is stored at 2*d + c. Undo it with
+  # reshape -> transpose -> reshape (generic operators only).
+  - name: attn_q
+    match: "blk\\.(?P<n>\\d+)\\.attn_q\\.weight"
+    dest: "model.layers.{n}.self_attn.q_proj.weight"
+    expect_shape: [{mul: [n_heads, head_dim]}, hidden_size]
+    steps:
+      - {op: reshape,
+         args: {shape: {list: [n_heads, {div: [head_dim, 2]}, 2, hidden_size]}}}
+      - {op: permute, args: {axes: {list: [0, 2, 1, 3]}}}
+      - {op: reshape,
+         args: {shape: {list: [{mul: [n_heads, head_dim]}, hidden_size]}}}
+
+  # same storage permutation, grouped by kv-head
+  - name: attn_k
+    match: "blk\\.(?P<n>\\d+)\\.attn_k\\.weight"
+    dest: "model.layers.{n}.self_attn.k_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+    steps:
+      - {op: reshape,
+         args: {shape: {list: [n_kv_heads, {div: [head_dim, 2]}, 2, hidden_size]}}}
+      - {op: permute, args: {axes: {list: [0, 2, 1, 3]}}}
+      - {op: reshape,
+         args: {shape: {list: [{mul: [n_kv_heads, head_dim]}, hidden_size]}}}
+
+  - name: attn_v
+    match: "blk\\.(?P<n>\\d+)\\.attn_v\\.weight"
+    dest: "model.layers.{n}.self_attn.v_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: attn_o
+    match: "blk\\.(?P<n>\\d+)\\.attn_output\\.weight"
+    dest: "model.layers.{n}.self_attn.o_proj.weight"
+    expect_shape: [hidden_size, {mul: [n_heads, head_dim]}]
+
+  - name: ffn_gate
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate\\.weight"
+    dest: "model.layers.{n}.mlp.gate_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_up
+    match: "blk\\.(?P<n>\\d+)\\.ffn_up\\.weight"
+    dest: "model.layers.{n}.mlp.up_proj.weight"
+    expect_shape: [intermediate_size, hidden_size]
+
+  - name: ffn_down
+    match: "blk\\.(?P<n>\\d+)\\.ffn_down\\.weight"
+    dest: "model.layers.{n}.mlp.down_proj.weight"
+    expect_shape: [hidden_size, intermediate_size]
+
+coverage:
+  per_layer_required:
+    - model.layers.{layer}.input_layernorm.weight
+    - model.layers.{layer}.post_attention_layernorm.weight
+    - model.layers.{layer}.mlp.gate_proj.weight
+    - model.layers.{layer}.mlp.up_proj.weight
+    - model.layers.{layer}.mlp.down_proj.weight
+  per_layer_alternatives:
+    - - model.layers.{layer}.self_attn.q_proj.weight
+
+output:
+  model_type: llama
+  architectures: ["LlamaForCausalLM"]
+  top_level:
+    tie_word_embeddings: {not: [has:output.weight]}
+  text_config:
+    hidden_size: [hidden_size]
+    num_hidden_layers: [n_layers]
+    vocab_size: [vocab_size]
+    num_attention_heads: [n_heads]
+    num_key_value_heads: [n_kv_heads]
+    head_dim: [head_dim]
+    intermediate_size: [intermediate_size]
+    rms_norm_eps: [rms_norm_eps]
+    max_position_embeddings: [gguf:context_length, ref:max_position_embeddings]
+    rope_theta: [rope_theta]
+    # llama.cpp GGUF carries no rope-scaling metadata and llama.cpp infers
+    # none at runtime; passing through --source-config values when given and
+    # otherwise null matches the proven llama.cpp behaviour. Models that rely
+    # on llama3-style scaling beyond the original context window are a
+    # documented limitation (pass --source-config to enable it).
+    rope_scaling: [ref:rope_scaling, null]
+    tie_word_embeddings: {not: [has:output.weight]}
+    attention_bias: [gguf:attention.bias, false]
+    attention_dropout: 0.0
+    hidden_act: silu
+    eos_token_id: [gguf:tokenizer.ggml.eos_token_id, ref:eos_token_id, null]
+    bos_token_id: [gguf:tokenizer.ggml.bos_token_id, ref:bos_token_id, null]
+    pad_token_id: [gguf:tokenizer.ggml.pad_token_id, ref:pad_token_id, null]
+  required_fields:
+    - tie_word_embeddings
+    - hidden_size
+    - num_hidden_layers
+    - vocab_size
+    - num_attention_heads
+    - num_key_value_heads
+    - head_dim
+    - intermediate_size
+    - rms_norm_eps
+    - max_position_embeddings
+    - rope_theta
+    - rope_scaling
+    - tie_word_embeddings
+    - attention_bias
+    - attention_dropout
+    - hidden_act
+  reference_config:
+    drop_fields: [architectures, model_type, rope_scaling, attention_bias,
+                  attention_dropout, hidden_act, tie_word_embeddings,
+                  bos_token_id, eos_token_id, pad_token_id]
+  tokenizer_files:
+    - tokenizer.json
+    - tokenizer_config.json
+    - generation_config.json
+    - special_tokens_map.json
+  max_shard_bytes: 4294967296

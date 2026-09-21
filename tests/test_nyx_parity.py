@@ -119,7 +119,9 @@ def build_nyx_skeleton_gguf(tmp_path: Path) -> Path:
         arch="qwen3_5_text",
         metadata={
             "embedding_length": HIDDEN,
-            "block_count": N_LAYERS,
+            # block_count includes the NextN/MTP block (llama.cpp convention)
+            "block_count": N_LAYERS + 1,
+            "nextn_predict_layers": 1,
             "vocab_size": VOCAB,
             "attention.head_count": N_HEADS,
             "attention.head_count_kv": N_KV,

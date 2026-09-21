@@ -198,6 +198,37 @@ def test_dims_fallback_chain_and_arith(tmp_path):
     assert len(plan.jobs) == 1  # only the matching expect_shape survives validation
 
 
+def test_step_args_literal_list_spec(tmp_path):
+    """{list: [...]} resolves to a literal list, not a fallback chain."""
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        dims={"hidden": "gguf:embedding_length", "vocab": {"mul": [2, "hidden"]},
+              "half": {"div": ["vocab", 2]}},
+        rules=[
+            {
+                "match": "tok\\.weight",
+                "dest": "t.weight",
+                "steps": [
+                    {"op": "reshape",
+                     "args": {"shape": {"list": [2, "half", 3, "hidden"]}}},
+                    {"op": "permute",
+                     "args": {"axes": {"list": [0, 2, 1, 3]}}},
+                    {"op": "reshape",
+                     "args": {"shape": {"list": [{"mul": [2, "vocab"]}, "hidden"]}}},
+                ],
+            },
+        ],
+        coverage={},
+    )
+    plan = plan_conversion(arch_config_from_dict(raw), src)
+    assert plan.dims["half"] == 4
+    (job,) = plan.jobs
+    assert job.steps[0].args["shape"] == [2, 4, 3, 4]
+    assert job.steps[1].args["axes"] == [0, 2, 1, 3]
+    assert job.steps[2].args["shape"] == [16, 4]
+
+
 def test_slot_slices_resolved(tmp_path):
     src = make_source(tmp_path)
     raw = base_config(

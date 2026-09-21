@@ -6,7 +6,10 @@ on:
   pull_request:
 
 jobs:
-  test:
+  # Linux: the plain `mlx` PyPI wheel for Linux (manylinux x86_64/aarch64)
+  # is the official CPU backend build — no special install needed, but we
+  # smoke-test that the backend actually runs on CPU.
+  test-linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -20,26 +23,36 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
+      - name: MLX CPU backend smoke test
+        run: python -c "import mlx.core as mx; assert mx.eval((mx.zeros(4) + 1).sum()).item() == 4.0"
       - name: Lint
-        run: ruff check src tests
+        run: ruff check src tests scripts
       - name: Tests
         run: pytest -m "not integration"
       - name: Config validation smoke test
         run: |
-          gguf2mlx-stream validate-config configs/qwen3_5.yaml
+          for cfg in configs/*.yaml; do
+            gguf2mlx-stream validate-config "$cfg"
+          done
           gguf2mlx-stream list-ops
 
-  # macOS job: mlx wheels are published for macOS; exercise the full engine.
+  # macOS job: mlx wheels are published for macOS arm64; exercise the full
+  # engine (including quantization) on the primary target platform.
   test-macos:
     runs-on: macos-14
+    strategy:
+      matrix:
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check src tests scripts
       - name: Tests
         run: pytest -m "not integration"

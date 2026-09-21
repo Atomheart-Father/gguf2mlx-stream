@@ -101,13 +101,24 @@ def build_output_config(
     top_level: Mapping[str, Any],
     text_config: Mapping[str, Any],
     quantization: Mapping[str, Any] | None,
+    nest_under: str | None = None,
 ) -> dict[str, Any]:
+    """Build config.json for an MLX-LM model directory.
+
+    Nested families (e.g. qwen3_5 with ``nest_under="text_config"``) place
+    model fields under the given key; flat families (llama, qwen3,
+    gemma3_text) merge them at the top level, matching what their mlx-lm
+    ``ModelArgs.from_dict`` implementations read.
+    """
     cfg: dict[str, Any] = {
         "architectures": list(architectures),
         "model_type": model_type,
     }
     cfg.update(dict(top_level))
-    cfg["text_config"] = dict(text_config)
+    if nest_under:
+        cfg[nest_under] = dict(text_config)
+    else:
+        cfg.update(dict(text_config))
     if quantization:
         cfg["quantization"] = dict(quantization)
         cfg["quantization_config"] = dict(quantization)

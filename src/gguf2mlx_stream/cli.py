@@ -121,29 +121,29 @@ def cmd_convert(args: argparse.Namespace) -> int:
         log=print if not args.quiet else (lambda _msg: None),
         max_shard_bytes=int(args.max_shard_gb * 2**30) if args.max_shard_gb else None,
     )
-    stats = runner.run()
+    stats = runner.run(overwrite=args.overwrite)
+    if args.report_json:
+        with open(args.report_json, "w") as f:
+            json.dump(
+                {
+                    "output_bytes": stats.output_bytes,
+                    "n_tensors": stats.n_tensors,
+                    "n_shards": stats.n_shards,
+                    "elapsed_s": stats.elapsed_s,
+                    "peak_rss_gib": stats.peak_rss_gib,
+                    "estimated_output_bytes": plan.est_output_bytes,
+                    "n_jobs": len(plan.jobs),
+                    "n_dropped": len(plan.dropped),
+                    "dims": dict(plan.dims),
+                },
+                f,
+                indent=2,
+            )
     if not args.quiet:
         print(
             f"[stats] output={stats.output_bytes / 2**30:.2f} GiB, shards={stats.n_shards}, "
             f"time={stats.elapsed_s:.0f}s, peak RSS={stats.peak_rss_gib:.2f} GiB"
         )
-        if args.report_json:
-            with open(args.report_json, "w") as f:
-                json.dump(
-                    {
-                        "output_bytes": stats.output_bytes,
-                        "n_tensors": stats.n_tensors,
-                        "n_shards": stats.n_shards,
-                        "elapsed_s": stats.elapsed_s,
-                        "peak_rss_gib": stats.peak_rss_gib,
-                        "estimated_output_bytes": plan.est_output_bytes,
-                        "n_jobs": len(plan.jobs),
-                        "n_dropped": len(plan.dropped),
-                        "dims": dict(plan.dims),
-                    },
-                    f,
-                    indent=2,
-                )
     return 0
 
 
@@ -217,6 +217,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="print plan and exit")
     p.add_argument("--max-shard-gb", type=float, default=None,
                    help="override shard size limit from the config")
+    p.add_argument("--overwrite", action="store_true",
+                   help="replace an existing non-empty output directory")
     p.add_argument("--chunk-mb", type=int, default=512,
                    help="dequantization chunk size in MiB (default 512)")
     p.add_argument("--quiet", "-q", action="store_true")

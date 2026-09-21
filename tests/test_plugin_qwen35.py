@@ -8,7 +8,12 @@ from gguf2mlx_stream.ops.base import OpContext
 
 SPEC = get_op("qwen35_v_head_unpermute")
 
-DIMS = {"linear_num_value_heads": 4, "linear_value_head_dim": 2}
+# 4 v-heads in 2 kv-groups -> ratio 2 (the Qwen3.5-9B geometry)
+DIMS = {
+    "linear_num_value_heads": 4,
+    "linear_num_key_heads": 2,
+    "linear_value_head_dim": 2,
+}
 
 
 def run(x, args=None, dims=DIMS):
@@ -16,11 +21,12 @@ def run(x, args=None, dims=DIMS):
     return SPEC.fn({"x": np.asarray(x, np.float32)}, ["x"], dict(args or {}), ctx)
 
 
-def zip_ref(x, axis, block):
+def zip_ref(x, axis, block, ratio=2):
+    """GGUF storage: concat(natural[j::ratio] for j in range(ratio)) over blocks."""
     moved = np.moveaxis(x, axis, 0)
     n = moved.shape[0] // block
     v = moved.reshape(n, block, *moved.shape[1:])
-    out = np.concatenate([v[0::2], v[1::2]], axis=0).reshape(moved.shape)
+    out = np.concatenate([v[j::ratio] for j in range(ratio)], axis=0).reshape(moved.shape)
     return np.moveaxis(out, 0, axis)
 
 
@@ -54,10 +60,18 @@ def test_default_dims_come_from_context():
     np.testing.assert_array_equal(run(gguf, {"axis": 0}), natural)
 
 
-def test_explicit_int_overrides():
+def test_explicit_int_overrides_ratio1():
+    # heads=6, kv groups=6 -> ratio 1 -> identity
     natural = np.arange(6, dtype=np.float32)
-    gguf = zip_ref(natural, 0, 1)
-    out = run(gguf, {"axis": 0, "heads": 6, "block": 1})
+    out = run(natural, {"axis": 0, "heads": 6, "k_heads": 6, "block": 1})
+    np.testing.assert_array_equal(out, natural)
+
+
+def test_ratio3_from_dims():
+    dims = {"linear_num_value_heads": 6, "linear_num_key_heads": 2, "linear_value_head_dim": 1}
+    natural = np.arange(6, dtype=np.float32)
+    gguf = zip_ref(natural, 0, 1, ratio=3)
+    out = run(gguf, {"axis": 0, "block": 1}, dims=dims)
     np.testing.assert_array_equal(out, natural)
 
 
@@ -67,6 +81,13 @@ def test_shape_mismatch_raises():
         run(bad, {"axis": 0})
     with pytest.raises(ValueError):
         run(np.zeros(5, np.float32), {"axis": 0, "block": 1})
+
+
+def test_indivisible_heads_raise():
+    with pytest.raises(ValueError):
+        run(np.zeros((8, 2), np.float32), {"axis": 0},
+            dims={"linear_num_value_heads": 5, "linear_num_key_heads": 2,
+                  "linear_value_head_dim": 2})
 
 
 def test_unknown_dim_raises():

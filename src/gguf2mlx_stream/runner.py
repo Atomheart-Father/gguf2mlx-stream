@@ -20,7 +20,9 @@ import gc
 import json
 import os
 import resource
+import shutil
 import time
+import uuid
 from typing import Any, Callable, Mapping
 
 import numpy as np
@@ -101,6 +103,7 @@ class ConversionRunner:
         self.chunk_elements = chunk_elements
         self.check_finite = check_finite
         self.log = log
+        self.stats: RunStats | None = None
 
     # ---------- job execution ----------
 
@@ -159,9 +162,54 @@ class ConversionRunner:
 
     # ---------- main loop ----------
 
-    def run(self) -> RunStats:
-        os.makedirs(self.out_dir, exist_ok=True)
-        writer = ShardedSafetensorsWriter(self.out_dir, self.max_shard_bytes)
+    def run(self, overwrite: bool = False) -> RunStats:
+        """Convert all planned jobs into a *transactional* output directory.
+
+        Everything is written to a sibling staging directory
+        (``<out>.tmp-<uuid>``) and atomically renamed into place only after
+        the index, config.json, and tokenizer files are complete. A failed
+        conversion never leaves a partial model at the output path, and an
+        existing output is never replaced without ``overwrite=True``.
+        """
+        out_path = os.path.abspath(self.out_dir)
+        parent = os.path.dirname(out_path)
+        if os.path.exists(out_path) and not os.path.isdir(out_path):
+            raise ConversionError(f"output path exists and is not a directory: {out_path}")
+        os.makedirs(parent, exist_ok=True)
+        if os.path.isdir(out_path) and os.listdir(out_path) and not overwrite:
+            raise ConversionError(
+                f"output directory {out_path!r} already exists and is not empty; "
+                "pass --overwrite to replace it"
+            )
+        stage = f"{out_path}.tmp-{uuid.uuid4().hex[:8]}"
+        old = f"{out_path}.old-{uuid.uuid4().hex[:8]}"
+        os.makedirs(stage)
+        try:
+            self._run_into(stage)
+            if os.path.isdir(out_path) and os.listdir(out_path):
+                if not overwrite:
+                    raise ConversionError(
+                        f"output directory {out_path!r} already exists; "
+                        "pass --overwrite to replace it"
+                    )
+                os.rename(out_path, old)
+                try:
+                    os.rename(stage, out_path)
+                except OSError:
+                    os.rename(old, out_path)  # restore previous output
+                    raise
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                if os.path.isdir(out_path):
+                    os.rmdir(out_path)  # replace an empty pre-created dir
+                os.rename(stage, out_path)
+        except BaseException:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
+        return self.stats
+
+    def _run_into(self, out_dir: str) -> None:
+        writer = ShardedSafetensorsWriter(out_dir, self.max_shard_bytes)
         t0 = time.time()
         stats = RunStats()
 
@@ -178,11 +226,11 @@ class ConversionRunner:
         stats.output_bytes = writer.total_bytes
         stats.n_shards = writer.n_shards
 
-        self._emit_config(writer, index)
+        self._emit_config(out_dir, writer, index)
         if self.tokenizer_source:
             copied = copy_tokenizer_files(
                 self.tokenizer_source,
-                self.out_dir,
+                out_dir,
                 list(self.plan.config.output.tokenizer_files),
             )
             self.log(f"[out] tokenizer files copied: {copied or 'none found'}")
@@ -194,7 +242,7 @@ class ConversionRunner:
             f"{stats.n_tensors} tensors, {stats.elapsed_s:.0f}s, peak RSS "
             f"{stats.peak_rss_gib:.2f} GiB"
         )
-        return stats
+        self.stats = stats
 
     def _convert_job(self, job: PlannedJob, writer: ShardedSafetensorsWriter) -> None:
         n_rows = job.source.n_rows
@@ -253,14 +301,28 @@ class ConversionRunner:
     # ---------- metadata emission ----------
 
     def _emit_config(
-        self, writer: ShardedSafetensorsWriter, index: Mapping[str, Any]
+        self, out_dir: str, writer: ShardedSafetensorsWriter, index: Mapping[str, Any]
     ) -> None:
-        from .planner import DimResolver
+        from .planner import DimResolver, _ARITH
 
         out = self.plan.config.output
         if not out.model_type:
             raise ConversionError("config output.model_type is not set")
         resolver = DimResolver(self.source, self.ref_config)
+
+        def _resolve_deep(spec: Any, where: str) -> Any:
+            # Only plain mappings nest deeper specs; an arithmetic spec
+            # ({mul/not/...}) and fallback-chain lists go to the resolver as
+            # a whole (literal list values come from ref: paths).
+            if (
+                isinstance(spec, dict)
+                and not (len(spec) == 1 and next(iter(spec), None) in _ARITH)
+            ):
+                return {
+                    k: _resolve_deep(v, f"{where}.{k}")
+                    for k, v in spec.items()
+                }
+            return resolver.resolve(spec, where, self.plan.dims)
 
         text_config: dict[str, Any] = {}
         if self.ref_config:
@@ -271,7 +333,7 @@ class ConversionRunner:
             }
             text_config.update(base)
         for key, spec in out.text_config.items():
-            value = resolver.resolve(spec, f"output.text_config.{key}", self.plan.dims)
+            value = _resolve_deep(spec, f"output.text_config.{key}")
             if key in text_config and text_config[key] != value:
                 self.log(
                     f"[out] WARNING: text_config.{key}: reference value "
@@ -280,7 +342,7 @@ class ConversionRunner:
             text_config[key] = value
 
         top_level = {
-            k: resolver.resolve(v, f"output.top_level.{k}", self.plan.dims)
+            k: _resolve_deep(v, f"output.top_level.{k}")
             for k, v in out.top_level.items()
         }
         quant = (
@@ -298,8 +360,32 @@ class ConversionRunner:
             top_level=top_level,
             text_config=text_config,
             quantization=quant,
+            nest_under=out.nest_config_under,
         )
-        if out.nest_config_under:
-            cfg[out.nest_config_under] = cfg.pop("text_config")
-        with open(os.path.join(self.out_dir, "config.json"), "w") as f:
+
+        missing = [
+            path
+            for path in out.required_fields
+            if _dig(cfg, path) is _MISSING
+        ]
+        if missing:
+            raise ConversionError(
+                "output config.json is missing required architecture field(s) "
+                f"(broken or over-permissive config): {missing}"
+            )
+        with open(os.path.join(out_dir, "config.json"), "w") as f:
             json.dump(cfg, f, indent=2)
+
+
+_MISSING = object()
+
+
+def _dig(cfg: Mapping[str, Any], dotted: str) -> Any:
+    """Walk a dotted path; returns _MISSING when any segment is absent.
+    A present-but-null value is a legitimate explicit value."""
+    node: Any = cfg
+    for part in dotted.split("."):
+        if not isinstance(node, Mapping) or part not in node:
+            return _MISSING
+        node = node[part]
+    return node
