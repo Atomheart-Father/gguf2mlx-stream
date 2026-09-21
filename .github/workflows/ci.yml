@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
       - name: MLX CPU backend smoke test
-        run: python -c "import mlx.core as mx; assert mx.eval((mx.zeros(4) + 1).sum()).item() == 4.0"
+        run: python -c "import mlx.core as mx; x = mx.zeros(4) + 1; mx.eval(x); assert x.sum().item() == 4.0"
       - name: Lint
         run: ruff check src tests scripts
       - name: Tests
