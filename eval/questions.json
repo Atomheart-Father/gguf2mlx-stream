@@ -1,0 +1,56 @@
+{
+  "$comment": "Fixed capability-regression question set. 40 scored items (zh/en common sense, basic math, logic, instruction following) + 5 open items for anomaly screening only. Scoring is rule-based over the post-<think> final text; 'checks' are OR-combined. Run with eval/run_eval.py. NOTE: no system prompt — llama.cpp 0.4.1 '-sys' + '--jinja' crashes on this Qwen3.5 template, so both sides run a single user turn (thinking enabled, template default, on both sides).",
+  "max_tokens": 1536,
+  "questions": [
+    {"id": "zh-cs-01", "lang": "zh", "category": "zh_common", "prompt": "中国的首都是哪座城市？", "answer": "北京", "checks": [{"type": "contains", "patterns": ["北京"]}]},
+    {"id": "zh-cs-02", "lang": "zh", "category": "zh_common", "prompt": "一年有多少个月？", "answer": "12", "checks": [{"type": "number", "value": 12}, {"type": "contains", "patterns": ["十二"]}]},
+    {"id": "zh-cs-03", "lang": "zh", "category": "zh_common", "prompt": "水的化学式是什么？", "answer": "H2O", "checks": [{"type": "contains", "patterns": ["h2o"]}]},
+    {"id": "zh-cs-04", "lang": "zh", "category": "zh_common", "prompt": "“锄禾日当午”的下一句是什么？", "answer": "汗滴禾下土", "checks": [{"type": "contains", "patterns": ["汗滴禾下土"]}]},
+    {"id": "zh-cs-05", "lang": "zh", "category": "zh_common", "prompt": "中国面积最大的省级行政区是哪一个？", "answer": "新疆", "checks": [{"type": "contains", "patterns": ["新疆"]}]},
+    {"id": "zh-cs-06", "lang": "zh", "category": "zh_common", "prompt": "大熊猫的主要食物是什么？", "answer": "竹子", "checks": [{"type": "contains", "patterns": ["竹"]}]},
+    {"id": "zh-cs-07", "lang": "zh", "category": "zh_common", "prompt": "《西游记》的作者是谁？", "answer": "吴承恩", "checks": [{"type": "contains", "patterns": ["吴承恩"]}]},
+    {"id": "zh-cs-08", "lang": "zh", "category": "zh_common", "prompt": "太阳从哪个方向升起？", "answer": "东方", "checks": [{"type": "contains", "patterns": ["东"]}]},
+    {"id": "zh-cs-09", "lang": "zh", "category": "zh_common", "prompt": "世界上最高的山峰叫什么名字？", "answer": "珠穆朗玛峰", "checks": [{"type": "contains", "patterns": ["珠穆朗玛", "珠峰", "everest"]}]},
+    {"id": "zh-cs-10", "lang": "zh", "category": "zh_common", "prompt": "中国传统节日春节是农历的哪一天？", "answer": "正月初一", "checks": [{"type": "contains", "patterns": ["正月初一", "大年初一", "初一"]}]},
+
+    {"id": "en-cs-01", "lang": "en", "category": "en_common", "prompt": "What is the capital of France?", "answer": "Paris", "checks": [{"type": "contains", "patterns": ["paris"]}]},
+    {"id": "en-cs-02", "lang": "en", "category": "en_common", "prompt": "How many days are there in a leap year?", "answer": "366", "checks": [{"type": "number", "value": 366}]},
+    {"id": "en-cs-03", "lang": "en", "category": "en_common", "prompt": "What is the chemical symbol for gold?", "answer": "Au", "checks": [{"type": "contains", "patterns": ["au"]}]},
+    {"id": "en-cs-04", "lang": "en", "category": "en_common", "prompt": "Who wrote the play \"Romeo and Juliet\"?", "answer": "Shakespeare", "checks": [{"type": "contains", "patterns": ["shakespeare"]}]},
+    {"id": "en-cs-05", "lang": "en", "category": "en_common", "prompt": "What is the largest planet in our solar system?", "answer": "Jupiter", "checks": [{"type": "contains", "patterns": ["jupiter"]}]},
+    {"id": "en-cs-06", "lang": "en", "category": "en_common", "prompt": "At what temperature in degrees Celsius does water freeze?", "answer": "0", "checks": [{"type": "number", "value": 0}, {"type": "contains", "patterns": ["zero"]}]},
+    {"id": "en-cs-07", "lang": "en", "category": "en_common", "prompt": "How many continents are there on Earth?", "answer": "7", "checks": [{"type": "number", "value": 7}, {"type": "contains", "patterns": ["seven"]}]},
+    {"id": "en-cs-08", "lang": "en", "category": "en_common", "prompt": "Who was the first President of the United States?", "answer": "George Washington", "checks": [{"type": "contains", "patterns": ["washington"]}]},
+    {"id": "en-cs-09", "lang": "en", "category": "en_common", "prompt": "What is the opposite of the word \"hot\"?", "answer": "cold", "checks": [{"type": "contains", "patterns": ["cold"]}]},
+    {"id": "en-cs-10", "lang": "en", "category": "en_common", "prompt": "How many legs does a spider have?", "answer": "8", "checks": [{"type": "number", "value": 8}, {"type": "contains", "patterns": ["eight"]}]},
+
+    {"id": "math-01", "lang": "en", "category": "math", "prompt": "Calculate 17 + 26.", "answer": "43", "checks": [{"type": "number", "value": 43}]},
+    {"id": "math-02", "lang": "en", "category": "math", "prompt": "Calculate 12 × 12.", "answer": "144", "checks": [{"type": "number", "value": 144}]},
+    {"id": "math-03", "lang": "en", "category": "math", "prompt": "Calculate 144 ÷ 12.", "answer": "12", "checks": [{"type": "number", "value": 12}]},
+    {"id": "math-04", "lang": "en", "category": "math", "prompt": "What is 15% of 200?", "answer": "30", "checks": [{"type": "number", "value": 30}]},
+    {"id": "math-05", "lang": "en", "category": "math", "prompt": "What is the square root of 81?", "answer": "9", "checks": [{"type": "number", "value": 9}]},
+    {"id": "math-06", "lang": "en", "category": "math", "prompt": "What is 2 raised to the power of 10?", "answer": "1024", "checks": [{"type": "number", "value": 1024}]},
+    {"id": "math-07", "lang": "en", "category": "math", "prompt": "Solve for x: 3x + 9 = 21.", "answer": "x = 4", "checks": [{"type": "number", "value": 4}]},
+    {"id": "math-08", "lang": "en", "category": "math", "prompt": "What is the least common multiple of 4 and 6?", "answer": "12", "checks": [{"type": "number", "value": 12}]},
+    {"id": "math-09", "lang": "en", "category": "math", "prompt": "Calculate 1000 ÷ 8.", "answer": "125", "checks": [{"type": "number", "value": 125}]},
+    {"id": "math-10", "lang": "en", "category": "math", "prompt": "Is 7 a prime number? Answer yes or no.", "answer": "yes", "checks": [{"type": "affirm", "affirmative": true}]},
+
+    {"id": "logic-01", "lang": "en", "category": "logic", "prompt": "All cats are animals. Tom is a cat. Is Tom an animal? Answer yes or no.", "answer": "yes", "checks": [{"type": "affirm", "affirmative": true}]},
+    {"id": "logic-02", "lang": "zh", "category": "logic", "prompt": "小明比小红高，小红比小刚高。三人中谁最矮？", "answer": "小刚", "checks": [{"type": "contains", "patterns": ["小刚"]}]},
+    {"id": "logic-03", "lang": "en", "category": "logic", "prompt": "If today is Wednesday, what day of the week will it be 10 days from now?", "answer": "Saturday", "checks": [{"type": "contains", "patterns": ["saturday", "星期六", "周六"]}]},
+    {"id": "logic-04", "lang": "en", "category": "logic", "prompt": "A is older than B. B is older than C. Who is the youngest? Answer with a single letter.", "answer": "C", "checks": [{"type": "token", "patterns": ["c"]}]},
+    {"id": "logic-05", "lang": "zh", "category": "logic", "prompt": "一个整数大于5且小于7，这个数是多少？", "answer": "6", "checks": [{"type": "number", "value": 6}]},
+
+    {"id": "inst-01", "lang": "en", "category": "instruction", "prompt": "Reply with exactly one word: what color is the sky on a clear day?", "answer": "blue (single word)", "checks": [{"type": "one_word", "patterns": ["blue"]}]},
+    {"id": "inst-02", "lang": "en", "category": "instruction", "prompt": "Answer with only YES or NO: Is 10 greater than 5?", "answer": "YES (bare)", "checks": [{"type": "yes_no", "target": "yes"}]},
+    {"id": "inst-03", "lang": "en", "category": "instruction", "prompt": "List exactly three primary colors, separated by commas.", "answer": "red, green, blue (all three present)", "checks": [{"type": "all_colors"}]},
+    {"id": "inst-04", "lang": "zh", "category": "instruction", "prompt": "用不超过五个汉字回答：中国的国宝动物是什么？", "answer": "熊猫（≤5字）", "checks": [{"type": "max_chars", "max_chars": 5, "patterns": ["熊猫"]}]},
+    {"id": "inst-05", "lang": "en", "category": "instruction", "prompt": "Respond with a single number only: how many hours are there in two days?", "answer": "48", "checks": [{"type": "number", "value": 48}]},
+
+    {"id": "open-01", "lang": "en", "category": "open", "prompt": "Write one short sentence about autumn.", "answer": "(open — anomaly screening only)", "checks": [{"type": "open"}]},
+    {"id": "open-02", "lang": "zh", "category": "open", "prompt": "用两句话介绍春天。", "answer": "(open — anomaly screening only)", "checks": [{"type": "open"}]},
+    {"id": "open-03", "lang": "en", "category": "open", "prompt": "In one or two sentences, why do people wear coats in winter?", "answer": "(open — anomaly screening only)", "checks": [{"type": "open"}]},
+    {"id": "open-04", "lang": "zh", "category": "open", "prompt": "请推荐一本你喜欢的书，并用一句话说明原因。", "answer": "(open — anomaly screening only)", "checks": [{"type": "open"}]},
+    {"id": "open-05", "lang": "en", "category": "open", "prompt": "Name your favorite color and say why in one short sentence.", "answer": "(open — anomaly screening only)", "checks": [{"type": "open"}]}
+  ]
+}
