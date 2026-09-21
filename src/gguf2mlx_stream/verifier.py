@@ -129,6 +129,30 @@ def _saved(out_dir: str, weight_map: Mapping[str, str], key: str) -> np.ndarray:
         return f.get_tensor(key)
 
 
+def _job_quant_params(
+    quant_cfg: Mapping[str, Any], job, report: VerifyReport
+) -> tuple[int, int]:
+    """Expected ``(bits, group_size)`` for one planned job.
+
+    The output's config.json is the source of truth: a flat per-module entry
+    inside the ``quantization`` mapping overrides the global settings. Keys
+    are module paths (weight path minus the trailing ".weight"), which is
+    also the format mlx-lm's loader consumes.
+    """
+    module_key = (
+        job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+    )
+    override = quant_cfg.get(module_key)
+    if isinstance(override, dict):
+        try:
+            return int(override["bits"]), int(override["group_size"])
+        except (KeyError, TypeError, ValueError):
+            report.failures.append(
+                f"{module_key}: malformed per-tensor quantization override {override!r}"
+            )
+    return int(quant_cfg["bits"]), int(quant_cfg["group_size"])
+
+
 def _recompute(plan: ConversionPlan, source: GGUFSource, job) -> np.ndarray:
     slots: dict[str, np.ndarray] = {}
     for sname, tensor_name, rows in job.slots:
@@ -225,7 +249,6 @@ def verify_conversion(
         raise VerifyError(
             f"--mode {mode!r} conflicts with output config.json quantization.mode {cfg_mode!r}"
         )
-    quant_cfg_bits, dequant_group = cfg_bits, cfg_group
 
     seen_rules: set[str] = set()
     for job in plan.jobs:
@@ -236,17 +259,50 @@ def verify_conversion(
             packed = _saved(out_dir, weight_map, job.dest)
             scales = _saved(out_dir, weight_map, base + ".scales")
             biases = _saved(out_dir, weight_map, base + ".biases")
-            rows = job.source.hf_shape[0]
-            # structural checks are cheap: run for every quantized tensor
-            if packed.dtype != np.uint32 or packed.shape[0] != rows:
+            # expected quantization parameters for THIS tensor: the global
+            # settings, unless the config records a per-key override (which
+            # any rule-level bits/group_size override must have produced)
+            job_bits, job_group = _job_quant_params(q, job, report)
+            if job.rule.bits is not None:
+                want_bits = job.rule.bits
+                want_group = job.rule.group_size or cfg_group
+                entry = q.get(base)
+                if not isinstance(entry, dict):
+                    report.failures.append(
+                        f"{job.dest}: architecture config declares bits={want_bits} "
+                        "but config.json quantization has no per-tensor override"
+                    )
+                elif (
+                    int(entry.get("bits", -1)) != want_bits
+                    or int(entry.get("group_size", -1)) != want_group
+                ):
+                    report.failures.append(
+                        f"{job.dest}: config.json override {entry!r} does not match "
+                        f"the architecture-config override (bits={want_bits}, "
+                        f"group_size={want_group})"
+                    )
+            lead = tuple(int(d) for d in job.out_shape[:-1])
+            inner = int(job.out_shape[-1])
+            # structural checks are cheap: run for every quantized tensor.
+            # N-D semantics: leading dims preserved, last dim packed/grouped.
+            if packed.dtype != np.uint32 or packed.shape[:-1] != lead:
                 report.failures.append(
                     f"{job.dest}: packed shape/dtype {packed.shape}/{packed.dtype} "
-                    f"inconsistent with rows {rows}"
+                    f"inconsistent with leading dims {lead}"
+                )
+            if packed.shape[-1] != inner * job_bits // 32:
+                report.failures.append(
+                    f"{job.dest}: packed last dim {packed.shape[-1]} inconsistent "
+                    f"with inner dim {inner} at bits={job_bits}"
                 )
             if scales.dtype != np.float16 or biases.dtype != np.float16:
                 report.failures.append(f"{job.dest}: scales/biases must be float16")
-            if scales.shape[0] != rows or biases.shape[0] != rows:
-                report.failures.append(f"{job.dest}: scales/biases row mismatch")
+            want_tail = (inner // job_group,)
+            if scales.shape != lead + want_tail or biases.shape != lead + want_tail:
+                report.failures.append(
+                    f"{job.dest}: scales/biases shapes {scales.shape}/{biases.shape} "
+                    f"inconsistent with leading dims {lead} and group_size {job_group}"
+                )
             report.checked_shapes += 1
             # default: numerically check EVERY quantized tensor; sampling is
             # an explicit opt-in (first job per rule + small tensors)
@@ -258,12 +314,12 @@ def verify_conversion(
             expected = _recompute(plan, source, job)
             try:
                 got = np.asarray(
-                    dequantize_weights(packed, scales, biases, quant_cfg_bits, dequant_group)
+                    dequantize_weights(packed, scales, biases, job_bits, job_group)
                 )
             except Exception as exc:
                 report.failures.append(
-                    f"{job.dest}: recorded quantization parameters (bits={quant_cfg_bits}, "
-                    f"group_size={dequant_group}) do not match the saved weights: {exc}"
+                    f"{job.dest}: recorded quantization parameters (bits={job_bits}, "
+                    f"group_size={job_group}) do not match the saved weights: {exc}"
                 )
                 report.checked_numeric += 1
                 continue
@@ -272,8 +328,8 @@ def verify_conversion(
             tol = tolerance
             if tol is None:
                 span = float(expected.max()) - float(expected.min())
-                tol = max(_DEFAULT_TOL.get(quant_cfg_bits, 0.1) * 0.2,
-                          span / (2 ** quant_cfg_bits - 1))
+                tol = max(_DEFAULT_TOL.get(job_bits, 0.1) * 0.2,
+                          span / (2 ** job_bits - 1))
             diff = float(np.abs(got - expected).max())
             if got.shape != expected.shape:
                 report.failures.append(

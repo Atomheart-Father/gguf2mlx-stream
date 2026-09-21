@@ -1,0 +1,410 @@
+# Declarative architecture config: Qwen3.5 hybrid MoE text models.
+#
+# Applies to llama.cpp GGUF exports of the Qwen3.5 / Qwen3.6 MoE family
+# (e.g. Qwen3.6-35B-A3B): the same gated-DeltaNet + periodic full-attention
+# hybrid backbone as `qwen3_5.yaml`, with each MLP replaced by a
+# router-gated expert block plus a shared expert.
+#
+# Identifier: current llama.cpp writes general.architecture = "qwen35moe"
+# with architecture-prefixed metadata (qwen35moe.*).
+#
+# Differences from the dense qwen3_5 layout (all verified against the
+# installed mlx-lm `qwen3_5_moe` implementation, not guessed):
+#
+# 1. Expert tensors are 3-D in both layouts. GGUF stores
+#    `ffn_gate_exps` / `ffn_up_exps` with hf shape
+#    (n_experts, moe_intermediate_size, hidden_size) and `ffn_down_exps`
+#    with hf shape (n_experts, hidden_size, moe_intermediate_size).
+#    mlx-lm expects `mlp.switch_mlp.{gate,up,down}_proj.weight` as
+#    SwitchLinear weights with the same leading (n_experts, ...) layout,
+#    so expert tensors are plain copies with per-rule quantization along
+#    the last axis (leading axes preserved).
+# 2. Router (`ffn_gate_inp.weight` -> `mlp.gate.weight`) and shared-expert
+#    gate (`ffn_gate_inp_shexp` -> `mlp.shared_expert_gate.weight`, vector
+#    unsqueezed to (1, hidden_size)) carry per-rule 8-bit quantization
+#    overrides, mirroring mlx-lm's own `quant_predicate` for this family;
+#    the override is declared here per rule, never hardcoded in the
+#    executor, and is written into config.json under the tensor's own key.
+# 3. Shared-expert FFN (`ffn_{gate,up,down}_shexp`) maps to
+#    `mlp.shared_expert.{gate,up,down}_proj.weight`, quantized like the
+#    rest of the body.
+# 4. MTP/NextN blocks [n_layers, total_blocks) are dropped exactly as in
+#    the dense config (the GGUF block_count includes the MTP block, which
+#    here additionally carries nextn.* tensors).
+# 5. GDN semantics (v-head unpermute, A_log, conv1d sanitization, norms)
+#    are identical to the dense config; the head geometry resolves from
+#    metadata (for the 35B-A3B geometry: 32 v-heads / 16 kv-heads -> the
+#    same group ratio 2 as the 9B dense model).
+# 6. `rope_parameters.mrope_section` is read declaratively from the GGUF
+#    metadata array `rope.dimension_sections` — it is llama.cpp's M-RoPE
+#    section array (4-element convention) and varies per checkpoint, so it
+#    is never hardcoded here. For text-only inference every M-RoPE section
+#    receives the same position ids, so section boundaries do not affect
+#    generation numerics; mlx-lm's rope_type "default" ignores them.
+# 7. Output config uses model_type "qwen3_5_moe" with
+#    architectures ["Qwen3_5MoeForConditionalGeneration"], matching the
+#    installed mlx-lm `qwen3_5_moe` model implementation.
+
+architecture:
+  id: qwen3_5_moe
+  aliases: []
+  gguf_arch: qwen35moe
+  description: >
+    Qwen3.5/3.6 hybrid MoE text model (GDN linear attention + periodic full
+    attention, router-gated experts + shared expert) in llama.cpp GGUF layout.
+
+# Dimensions resolve from GGUF metadata first; list values are fallback
+# chains. GGUF-only conversion (no reference config) is the normal path.
+dims:
+  hidden_size: [gguf:embedding_length, ref:hidden_size]
+  total_blocks: [gguf:block_count]
+  nextn_predict_layers: [gguf:nextn_predict_layers, 0]
+  # llama.cpp block_count INCLUDES NextN/MTP blocks.
+  n_layers: [{sub: [gguf:block_count, nextn_predict_layers]}, ref:num_hidden_layers]
+  vocab_size: [gguf:vocab_size, tshape:token_embd.weight.0, ref:vocab_size]
+  n_heads: [gguf:attention.head_count, ref:num_attention_heads]
+  n_kv_heads: [gguf:attention.head_count_kv, ref:num_key_value_heads]
+  head_dim: [gguf:attention.key_length, ref:head_dim]
+  # dense-MLP fields are absent for all-MoE checkpoints; kept as fallbacks
+  intermediate_size: [gguf:feed_forward_length, ref:intermediate_size, 0]
+  n_experts: [gguf:expert_count, ref:num_experts]
+  n_experts_used: [gguf:expert_used_count, ref:num_experts_per_tok]
+  moe_intermediate_size: [gguf:expert_feed_forward_length, ref:moe_intermediate_size]
+  shared_expert_intermediate_size: [gguf:expert_shared_feed_forward_length, ref:shared_expert_intermediate_size]
+  linear_num_key_heads: [gguf:ssm.group_count, gguf:linear_num_key_heads, ref:linear_num_key_heads]
+  linear_key_head_dim: [gguf:ssm.state_size, gguf:linear_key_head_dim, ref:linear_key_head_dim]
+  linear_num_value_heads: [gguf:ssm.time_step_rank, gguf:linear_num_value_heads, ref:linear_num_value_heads]
+  # per-head value dim = ssm.inner_size / v-heads
+  linear_value_head_dim: [{div: [gguf:ssm.inner_size, gguf:ssm.time_step_rank]}, gguf:linear_value_head_dim, ref:linear_value_head_dim]
+  linear_conv_kernel_dim: [gguf:ssm.conv_kernel, gguf:linear_conv_kernel_dim, ref:linear_conv_kernel_dim]
+  full_attention_interval: [gguf:full_attention_interval, ref:full_attention_interval, 4]
+  key_dim: {mul: [linear_num_key_heads, linear_key_head_dim]}
+  value_dim: {mul: [linear_num_value_heads, linear_value_head_dim]}
+  conv_dim: {add: [{mul: [2, key_dim]}, value_dim]}
+  rms_norm_eps: [gguf:attention.layer_norm_rms_epsilon, ref:rms_norm_eps]
+  rope_theta: [gguf:rope.freq_base, ref:rope_parameters.rope_theta]
+  rope_dim: [gguf:rope.dimension_count, ref:rope_parameters.partial_rotary_factor]
+
+rules:
+  # ---- MTP / next-token-prediction blocks: explicitly dropped via the
+  # reserved {i} range form (first rule wins). Empty when nextn=0. ----
+  - name: mtp_drop
+    match: "blk\\.{i}\\..*"
+    drop: true
+    range: {start: n_layers, end: total_blocks}
+
+  # ---- global ----
+  - name: embeddings
+    match: "token_embd\\.weight"
+    dest: "language_model.model.embed_tokens.weight"
+    expect_shape: [vocab_size, hidden_size]
+
+  - name: lm_head
+    match: "output\\.weight"
+    dest: "language_model.lm_head.weight"
+    expect_shape: [vocab_size, hidden_size]
+    optional: true
+
+  - name: final_norm
+    match: "output_norm\\.weight"
+    dest: "language_model.model.norm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # ---- per-layer norms (verbatim, +1 already baked in by llama.cpp) ----
+  - name: input_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.attn_norm\\.weight"
+    dest: "language_model.model.layers.{n}.input_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  - name: post_attention_layernorm
+    match: "blk\\.(?P<n>\\d+)\\.post_attention_norm\\.weight"
+    dest: "language_model.model.layers.{n}.post_attention_layernorm.weight"
+    expect_shape: [hidden_size]
+    quantize: false
+    dtype: float32
+
+  # ---- full-attention layers (q rows carry a fused [q; gate]) ----
+  - name: full_attn_q
+    match: "blk\\.(?P<n>\\d+)\\.attn_q\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.q_proj.weight"
+    expect_shape: [{mul: [2, n_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_k
+    match: "blk\\.(?P<n>\\d+)\\.attn_k\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.k_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_v
+    match: "blk\\.(?P<n>\\d+)\\.attn_v\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.v_proj.weight"
+    expect_shape: [{mul: [n_kv_heads, head_dim]}, hidden_size]
+
+  - name: full_attn_o
+    match: "blk\\.(?P<n>\\d+)\\.attn_output\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.o_proj.weight"
+    expect_shape: [hidden_size, {mul: [n_heads, head_dim]}]
+
+  - name: full_attn_q_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_q_norm\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.q_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  - name: full_attn_k_norm
+    match: "blk\\.(?P<n>\\d+)\\.attn_k_norm\\.weight"
+    dest: "language_model.model.layers.{n}.self_attn.k_norm.weight"
+    expect_shape: [head_dim]
+    quantize: false
+    dtype: float32
+
+  # ---- GDN linear-attention layers ----
+  - name: gdn_in_proj_qkv
+    match: "blk\\.(?P<n>\\d+)\\.attn_qkv\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_qkv.weight"
+    expect_shape: [conv_dim, hidden_size]
+    inputs:
+      qk: {slice: {axis: 0, lo: 0, hi: {mul: [2, key_dim]}}}
+      v:  {slice: {axis: 0, lo: {mul: [2, key_dim]}, hi: conv_dim}}
+    steps:
+      - {op: qwen35_v_head_unpermute, input: v, output: v_nat, args: {axis: 0}}
+      - {op: concat, inputs: [qk, v_nat], args: {axis: 0}}
+
+  - name: gdn_in_proj_z
+    match: "blk\\.(?P<n>\\d+)\\.attn_gate\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_z.weight"
+    expect_shape: [value_dim, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0}}
+
+  - name: gdn_in_proj_a
+    match: "blk\\.(?P<n>\\d+)\\.ssm_alpha\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_a.weight"
+    expect_shape: [linear_num_value_heads, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  - name: gdn_in_proj_b
+    match: "blk\\.(?P<n>\\d+)\\.ssm_beta\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.in_proj_b.weight"
+    expect_shape: [linear_num_value_heads, hidden_size]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  - name: gdn_out_proj
+    match: "blk\\.(?P<n>\\d+)\\.ssm_out\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.out_proj.weight"
+    expect_shape: [hidden_size, value_dim]
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 1}}
+
+  - name: gdn_conv1d
+    match: "blk\\.(?P<n>\\d+)\\.ssm_conv1d\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.conv1d.weight"
+    expect_shape: [conv_dim, linear_conv_kernel_dim]
+    quantize: false
+    dtype: float32
+    inputs:
+      qk: {slice: {axis: 0, lo: 0, hi: {mul: [2, key_dim]}}}
+      v:  {slice: {axis: 0, lo: {mul: [2, key_dim]}, hi: conv_dim}}
+    steps:
+      - {op: qwen35_v_head_unpermute, input: v, output: v_nat, args: {axis: 0}}
+      - {op: concat, inputs: [qk, v_nat], args: {axis: 0}}
+      - {op: unsqueeze, input: "_", args: {axis: -1}}
+
+  - name: gdn_dt_bias
+    match: "blk\\.(?P<n>\\d+)\\.ssm_dt\\.bias"
+    dest: "language_model.model.layers.{n}.linear_attn.dt_bias"
+    expect_shape: [linear_num_value_heads]
+    quantize: false
+    dtype: float32
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+
+  # A_log = log(-unpermute(ssm_a)); neg/log are generic operators.
+  - name: gdn_a_log
+    match: "blk\\.(?P<n>\\d+)\\.ssm_a"
+    dest: "language_model.model.layers.{n}.linear_attn.A_log"
+    expect_shape: [linear_num_value_heads]
+    quantize: false
+    dtype: float32
+    steps:
+      - {op: qwen35_v_head_unpermute, args: {axis: 0, block: 1}}
+      - {op: neg}
+      - {op: log}
+
+  - name: gdn_norm
+    match: "blk\\.(?P<n>\\d+)\\.ssm_norm\\.weight"
+    dest: "language_model.model.layers.{n}.linear_attn.norm.weight"
+    expect_shape: [linear_value_head_dim]
+    quantize: false
+    dtype: float32
+
+  # ---- MoE router: 8-bit per-rule override (mirrors mlx-lm's
+  # quant_predicate for this family; the override travels through
+  # config.json, not through any executor special case) ----
+  - name: moe_router
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate_inp\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.gate.weight"
+    expect_shape: [n_experts, hidden_size]
+    bits: 8
+    group_size: 64
+
+  # ---- shared-expert gate: vector unsqueezed to Linear (1, hidden).
+  # expect_shape pins the SOURCE vector; the (1, hidden) output shape is
+  # enforced by the unsqueeze operator's plan-time shape inference. ----
+  - name: moe_shared_gate
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate_inp_shexp\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.shared_expert_gate.weight"
+    expect_shape: [hidden_size]
+    quantize: true
+    bits: 8
+    group_size: 64
+    steps:
+      - {op: unsqueeze, args: {axis: 0}}
+
+  # ---- shared expert FFN ----
+  - name: moe_shared_gate_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate_shexp\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.shared_expert.gate_proj.weight"
+    expect_shape: [shared_expert_intermediate_size, hidden_size]
+
+  - name: moe_shared_up_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_up_shexp\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.shared_expert.up_proj.weight"
+    expect_shape: [shared_expert_intermediate_size, hidden_size]
+
+  - name: moe_shared_down_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_down_shexp\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.shared_expert.down_proj.weight"
+    expect_shape: [hidden_size, shared_expert_intermediate_size]
+
+  # ---- routed experts: 3-D SwitchLinear weights, quantized along the
+  # last axis with leading (n_experts, ...) axes preserved ----
+  - name: moe_expert_gate_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_gate_exps\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.switch_mlp.gate_proj.weight"
+    expect_shape: [n_experts, moe_intermediate_size, hidden_size]
+
+  - name: moe_expert_up_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_up_exps\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.switch_mlp.up_proj.weight"
+    expect_shape: [n_experts, moe_intermediate_size, hidden_size]
+
+  - name: moe_expert_down_proj
+    match: "blk\\.(?P<n>\\d+)\\.ffn_down_exps\\.weight"
+    dest: "language_model.model.layers.{n}.mlp.switch_mlp.down_proj.weight"
+    expect_shape: [n_experts, hidden_size, moe_intermediate_size]
+
+coverage:
+  per_layer_required:
+    - language_model.model.layers.{layer}.input_layernorm.weight
+    - language_model.model.layers.{layer}.post_attention_layernorm.weight
+    - language_model.model.layers.{layer}.mlp.gate.weight
+    - language_model.model.layers.{layer}.mlp.shared_expert_gate.weight
+    - language_model.model.layers.{layer}.mlp.shared_expert.gate_proj.weight
+    - language_model.model.layers.{layer}.mlp.shared_expert.up_proj.weight
+    - language_model.model.layers.{layer}.mlp.shared_expert.down_proj.weight
+    - language_model.model.layers.{layer}.mlp.switch_mlp.gate_proj.weight
+    - language_model.model.layers.{layer}.mlp.switch_mlp.up_proj.weight
+    - language_model.model.layers.{layer}.mlp.switch_mlp.down_proj.weight
+  per_layer_alternatives:
+    - - language_model.model.layers.{layer}.self_attn.q_proj.weight
+      - language_model.model.layers.{layer}.linear_attn.in_proj_qkv.weight
+
+output:
+  model_type: qwen3_5_moe
+  architectures: ["Qwen3_5MoeForConditionalGeneration"]
+  nest_config_under: text_config
+  top_level:
+    # tied when the GGUF has no standalone output.weight
+    tie_word_embeddings: {not: [has:output.weight]}
+  text_config:
+    hidden_size: [hidden_size]
+    num_hidden_layers: [n_layers]
+    vocab_size: [vocab_size]
+    num_attention_heads: [n_heads]
+    num_key_value_heads: [n_kv_heads]
+    head_dim: [head_dim]
+    intermediate_size: [intermediate_size]
+    num_experts: [n_experts]
+    num_experts_per_tok: [n_experts_used]
+    moe_intermediate_size: [moe_intermediate_size]
+    shared_expert_intermediate_size: [shared_expert_intermediate_size]
+    norm_topk_prob: [ref:norm_topk_prob, true]
+    decoder_sparse_step: [ref:decoder_sparse_step, 1]
+    linear_num_value_heads: [linear_num_value_heads]
+    linear_num_key_heads: [linear_num_key_heads]
+    linear_key_head_dim: [linear_key_head_dim]
+    linear_value_head_dim: [linear_value_head_dim]
+    linear_conv_kernel_dim: [linear_conv_kernel_dim]
+    full_attention_interval: [full_attention_interval]
+    # mirrors top-level tie_word_embeddings: mlx-lm reads it from the
+    # text-config args when constructing the model
+    tie_word_embeddings: {not: [has:output.weight]}
+    rms_norm_eps: [rms_norm_eps]
+    max_position_embeddings: [gguf:context_length, ref:max_position_embeddings]
+    attention_bias: [gguf:attention.bias, false]
+    attention_dropout: 0.0
+    attn_output_gate: true
+    hidden_act: silu
+    rope_parameters:
+      rope_type: default
+      rope_theta: [rope_theta]
+      partial_rotary_factor: [{div: [rope_dim, head_dim]}]
+      # llama.cpp's 4-element M-RoPE section array, passed through from the
+      # source metadata — never hardcoded. Section boundaries only matter
+      # for multimodal position ids; text-only inference is unaffected.
+      mrope_section: [gguf:rope.dimension_sections]
+      # Qwen3.5 applies MRoPE interleaved (see transformers
+      # Qwen3_5RotaryEmbedding); architecture-level constant.
+      mrope_interleaved: true
+    eos_token_id: [gguf:tokenizer.ggml.eos_token_id, ref:eos_token_id, null]
+    bos_token_id: [gguf:tokenizer.ggml.bos_token_id, ref:bos_token_id, null]
+    pad_token_id: [gguf:tokenizer.ggml.pad_token_id, ref:pad_token_id, null]
+  required_fields:
+    - tie_word_embeddings
+    - text_config.hidden_size
+    - text_config.num_hidden_layers
+    - text_config.vocab_size
+    - text_config.num_attention_heads
+    - text_config.num_key_value_heads
+    - text_config.head_dim
+    - text_config.intermediate_size
+    - text_config.num_experts
+    - text_config.num_experts_per_tok
+    - text_config.moe_intermediate_size
+    - text_config.shared_expert_intermediate_size
+    - text_config.norm_topk_prob
+    - text_config.decoder_sparse_step
+    - text_config.linear_num_value_heads
+    - text_config.linear_num_key_heads
+    - text_config.linear_key_head_dim
+    - text_config.linear_value_head_dim
+    - text_config.linear_conv_kernel_dim
+    - text_config.full_attention_interval
+    - text_config.rms_norm_eps
+    - text_config.max_position_embeddings
+    - text_config.attention_bias
+    - text_config.attention_dropout
+    - text_config.attn_output_gate
+    - text_config.hidden_act
+    - text_config.rope_parameters.rope_theta
+    - text_config.rope_parameters.partial_rotary_factor
+    - text_config.rope_parameters.mrope_section
+  reference_config:
+    drop_fields: [architectures, model_name, unsloth_version, rope_parameters,
+                  attention_bias, attention_dropout, attn_output_gate, hidden_act]
+  tokenizer_files:
+    - tokenizer.json
+    - tokenizer_config.json
+    - chat_template.jinja
+    - generation_config.json
+    - special_tokens_map.json
+    - merges.txt
+    - vocab.json
+  max_shard_bytes: 4294967296

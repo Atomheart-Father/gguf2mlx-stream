@@ -99,6 +99,8 @@ def _add_metadata(w: GGUFWriter, metadata: Mapping[str, object]) -> None:
             w.add_uint32(key, value)
         elif isinstance(value, float):
             w.add_float32(key, value)
+        elif isinstance(value, (list, tuple)):
+            w.add_array(key, list(value))
         else:
             raise TypeError(f"unsupported metadata {key}={value!r}")
 
@@ -113,9 +115,10 @@ def write_gguf(
     """Write a synthetic GGUF file.
 
     f32_tensors: (name, array) with HF-convention shapes; stored with
-        GGUF ne = reversed(shape) (llama.cpp convention).
-    quant_tensors: (name, raw_bytes, ne, qtype) with ne = (inner, rows);
-        bytes are laid out row-major over ne[1:].
+        GGUF ne = reversed(shape) (llama.cpp convention). Any rank works,
+        including 3-D expert tensors.
+    quant_tensors: (name, raw_bytes, ne, qtype) with ne in llama.cpp order
+        (inner first); bytes are laid out row-major over ne[1:].
     """
     w = GGUFWriter(str(path), arch=arch)
     w.add_architecture()
@@ -126,13 +129,11 @@ def write_gguf(
         # C-order bytes match GGUF's row-major-over-ne layout.
         w.add_tensor(name, np.ascontiguousarray(np.asarray(arr, np.float32)))
     for name, raw, ne, qtype in quant_tensors:
-        inner = ne[0]
-        rows = ne[1] if len(ne) > 1 else 1
-        # The writer reverses ti.shape into file ne, so pass (rows, inner)
-        # to get ne = (inner, rows). An int8 view skips gguf-py's byte-shape
-        # reinterpretation; tofile writes the flat bytes unchanged.
+        # The writer reverses ti.shape into file ne, so pass the reversed ne
+        # as raw_shape; an int8 view skips gguf-py's byte-shape
+        # reinterpretation and tofile writes the flat bytes unchanged.
         w.add_tensor(name, np.frombuffer(raw, np.uint8).view(np.int8),
-                     raw_shape=(rows, inner), raw_dtype=qtype)
+                     raw_shape=tuple(reversed(ne)), raw_dtype=qtype)
     w.write_header_to_file()
     w.write_kv_data_to_file()
     w.write_tensors_to_file()

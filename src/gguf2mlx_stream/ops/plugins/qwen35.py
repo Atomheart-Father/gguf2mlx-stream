@@ -107,4 +107,3 @@ def qwen35_v_head_unpermute(inputs, order, args, ctx: OpContext) -> np.ndarray:
     return op_reorder_grouped_heads(
         {"x": x}, ["x"], {"axis": axis, "block": block, "ratio": ratio}, ctx
     )
-

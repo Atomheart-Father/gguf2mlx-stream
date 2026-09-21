@@ -2,7 +2,7 @@
 
 Guarantees under test (release P1):
 
-* the four official architecture configs are discoverable as built-ins and
+* the five official architecture configs are discoverable as built-ins and
   load/validate without a source checkout;
 * the built wheel contains them verbatim under ``gguf2mlx_stream/configs/``
   (byte-identical to the authoritative repository-root ``configs/``);
@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-OFFICIAL = ("gemma3", "llama", "qwen3", "qwen3_5")
+OFFICIAL = ("gemma3", "llama", "qwen3", "qwen3_5", "qwen3_5_moe")
 
 
 def test_builtin_config_names_and_load():

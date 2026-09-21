@@ -50,6 +50,7 @@ safetensors shard (flushed at a size limit)
 | family | config | highlights |
 |---|---|---|
 | `qwen3_5` | `configs/qwen3_5.yaml` | Qwen3.5 hybrid GDN + full attention; generic grouped v-head reorder for any heads/kv-heads ratio 1–4; NextN/MTP block removal via block-range drop rules; fused q\|k\|v; full-attention q+gate fusion pass-through; `A_log = log(−unpermute(ssm_a))`; conv1d `(dim,k) → (dim,k,1)`; output config nested under `text_config` |
+| `qwen35moe` | `configs/qwen3_5_moe.yaml` | Qwen3.5-MoE (hybrid GDN + full attention + 256-expert sparse MoE); everything from `qwen3_5` plus N-D (3-D expert) quantization with chunk-safe row streaming; config-declared per-rule bits/group_size overrides emitted as mlx-lm per-module keys (router and shared-expert gate at 8 bits); GGUF metadata-array passthrough (`rope.dimension_sections` → `mrope_section`) |
 | `qwen3` | `configs/qwen3.yaml` | dense transformer; tied-embedding aware (`tie_word_embeddings` derived from `output.weight` presence); q/k-norm pass-through |
 | `llama` | `configs/llama.yaml` | Llama family; undoes the llama.cpp convert-time q/k out-axis storage permutation with a generic reshape→permute→reshape chain; drops the derived `rope_freqs.weight` buffer |
 | `gemma3` | `configs/gemma3.yaml` | Gemma 3 text; subtracts the llama.cpp-baked `+1` from all RMSNorm weights (mlx-lm `gemma3_text` re-adds 1.0 at runtime); sliding/global attention pattern literals in output config |
@@ -91,6 +92,21 @@ committed). Peak RSS includes the mmap'd source page
 cache, which the OS can evict. See docs/TESTING.md for how the matrix is
 reproduced.
 
+Additional large-model regression (`qwen35moe`, run outside the pinned
+matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention
++ 256-expert MoE), source GGUF i1-IQ3_M → MLX 4-bit:
+
+| source GiB | output GiB (shards) | peak RSS GiB | convert s | verify |
+|---|---|---|---|---|
+| 14.72 | 18.17 (5) | 16.48 | 428 | ALL OK (733 numeric / 733 shape / 1757 finite) |
+
+Output loaded with `mlx_lm.load()`, produced coherent temp-0 chat
+generations through the tokenizer chat template, and shows semantic
+agreement with `llama-completion` output from the source GGUF on spot
+prompts. The same run exercised N-D (3-D expert) quantization with
+chunk-safe streaming and config-declared per-rule 8-bit overrides for the
+MoE router and shared-expert gate.
+
 ## Scope boundaries
 
 * **One source GGUF per conversion.** Tokenizer files and reference-config
@@ -105,7 +121,7 @@ reproduced.
 ## Quickstart
 
 ```bash
-pip install gguf2mlx-stream            # wheel: the four official configs are built in
+pip install gguf2mlx-stream            # wheel: the five official configs are built in
 pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
 
 # list the built-in architecture configs shipped with the package

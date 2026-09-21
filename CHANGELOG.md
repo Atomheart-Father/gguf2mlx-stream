@@ -3,6 +3,34 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **`qwen35moe` architecture config** (`configs/qwen3_5_moe.yaml`): Qwen3.5
+  hybrid GDN + full attention with 256-expert sparse MoE. Same GDN/v-head
+  semantics as `qwen3_5`; MoE tensors quantized directly in 3-D (experts,
+  tokens, inner) without ever materializing the full FP32 expert tensor.
+- **N-D quantization**: affine group quantization generalized from 2-D to
+  arbitrary rank ≥ 2. Leading dims are preserved; the last dim is
+  group-packed. Chunked conversion reshapes concatenated row chunks back to
+  N-D, so huge expert tensors stream in bounded memory. Chunked and
+  unchunked outputs are byte-identical (tested).
+- **Config-declared per-rule quantization overrides**: rules may declare
+  `bits`/`group_size`; overrides are validated at plan time, written as
+  mlx-lm per-module keys (module path without the trailing `.weight`) in
+  config.json's `quantization` mapping, and cross-checked by `verify`.
+  The `qwen35moe` config uses this for the MoE router and shared-expert
+  gate (8-bit).
+- **GGUF metadata array reads**: metadata values that are arrays (e.g.
+  `rope.dimension_sections`) are decoded with a bounded element cap and can
+  be referenced declaratively in output config templates
+  (`gguf:` references and list-valued `ref:` chains).
+
+### Fixed
+
+- Trailing blank line at EOF in the qwen3.5 plugin operator module.
+
 ## [0.1.0a1] - 2026-09-21
 
 Initial alpha release.
