@@ -322,7 +322,8 @@ Integration outputs must go to a distinct temporary/test directory.
 For the existing Qwen3.5/Nyx case:
 
 1. validate config and mapping coverage;
-2. run numeric spot checks against source/reference behavior;
+2. run numeric checks against source/reference behavior (the verifier
+   recomputes every quantized tensor by default; `--sampled` is opt-in);
 3. convert with bounded memory;
 4. verify output sizes are plausible;
 5. load using `mlx_lm.load()`;

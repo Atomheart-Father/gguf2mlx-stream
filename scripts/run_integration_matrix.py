@@ -453,6 +453,8 @@ def _to_markdown(s: dict) -> str:
         src = e.get("source", {}).get("size_bytes", 0) or 0
         outb = e.get("convert", {}).get("output_bytes", 0) or 0
         rss = e.get("convert", {}).get("peak_rss_gib", "-")
+        if isinstance(rss, float):
+            rss = f"{rss:.2f}"
         secs = e.get("convert", {}).get("elapsed_s", "-")
         verify = e.get("verify", {}).get("status", "-")
         gen = e.get("mlx_generation", {}).get("status", "-")

@@ -27,6 +27,42 @@ from ..generic import op_reorder_grouped_heads
 from ..registry import register_op
 
 
+def _resolve(value, ctx: OpContext) -> int:
+    if isinstance(value, int):
+        return value
+    return ctx.dim(str(value))
+
+
+def _infer_v_head_unpermute(shapes, order, args, ctx: OpContext) -> tuple[int, ...]:
+    """Plan-time mirror of the runtime geometry checks (identity shape).
+
+    Runs before any tensor is read so that a mismatched axis length or an
+    unresolvable head-geometry dim becomes a ``PlanError`` instead of a
+    runtime failure mid-conversion.
+    """
+    if len(order) != 1:
+        raise ValueError(f"expected exactly one input, got {order}")
+    x = tuple(int(d) for d in shapes[order[0]])
+    axis = int(args.get("axis", 0))
+    if not (-len(x) <= axis < len(x)):
+        raise ValueError(f"axis {axis} out of range for rank {len(x)}")
+    axis = axis if axis >= 0 else axis + len(x)
+    heads = _resolve(args.get("heads", "linear_num_value_heads"), ctx)
+    block = _resolve(args.get("block", "linear_value_head_dim"), ctx)
+    k_raw = args.get("k_heads", "linear_num_key_heads")
+    k_heads = heads if k_raw is None else _resolve(k_raw, ctx)
+    if k_heads <= 0 or heads % k_heads != 0:
+        raise ValueError(
+            f"value heads {heads} must be divisible by kv-head groups {k_heads}"
+        )
+    if block == 1:
+        if x[axis] != heads:
+            raise ValueError(f"axis length {x[axis]} != heads {heads}")
+    elif x[axis] != heads * block:
+        raise ValueError(f"axis length {x[axis]} != heads*block {heads * block}")
+    return x
+
+
 @register_op(
     "qwen35_v_head_unpermute",
     kind="permute",
@@ -42,6 +78,7 @@ from ..registry import register_op
         ("k_heads", "dim name or int: kv-head groups; default linear_num_key_heads"),
         ("block", "dim name or int: per-head block size; default linear_value_head_dim"),
     ),
+    infer_shape=_infer_v_head_unpermute,
 )
 def qwen35_v_head_unpermute(inputs, order, args, ctx: OpContext) -> np.ndarray:
     x = inputs[order[0]]
@@ -71,8 +108,3 @@ def qwen35_v_head_unpermute(inputs, order, args, ctx: OpContext) -> np.ndarray:
         {"x": x}, ["x"], {"axis": axis, "block": block, "ratio": ratio}, ctx
     )
 
-
-def _resolve(value, ctx: OpContext) -> int:
-    if isinstance(value, int):
-        return value
-    return ctx.dim(str(value))

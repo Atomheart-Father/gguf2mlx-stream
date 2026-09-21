@@ -16,14 +16,34 @@
 * **Integration evidence** — 8 real-GGUF conversions (4 families ×
   Q4_K_M + Q6_K) pass the full stage pipeline (convert → structural →
   verify → mlx_lm load → chat generation → llama.cpp comparison), plus an
-  isolated oMLX server discovering all outputs; 84 passing tests.
+  isolated oMLX server discovering all outputs; 110 passing tests.
 * **Transactional outputs** — staged conversion + atomic swap;
   `--overwrite` gate; explicit `required_fields` config emission.
+* **Release-gate P1 hardening** — wheel-packaged built-in configs
+  (`list-configs`, `--arch-config` by name/path/auto-detect), tokenizer
+  output contract (transactional), verifier full numeric coverage by
+  default with index/shard parity and config.json quant-parameter
+  validation (`--sampled` as explicit opt-in), plan-time pipeline shape
+  inference (`PlanError` instead of raw runtime exceptions), declarative
+  range-drop rules (no hardcoded name prefix), clean-install acceptance.
 * **Independent oracle test layer** — pure-numpy reimplementations drive
   the pipeline against non-circular expectations.
 * **CI** — Linux (CPU MLX backend smoke) + macOS matrix, ruff, config
   validation smoke test.
 * Version 0.1.0a1 published metadata (alpha classifier, dependency floors).
+
+## Known P2 leftovers (post-0.1.0a1)
+
+* `dims` arithmetic `div` falls back to float division on non-exact
+  division (documented behavior; a strict-fail option may be preferable).
+* No `plan` subcommand yet — the plan view is `convert --dry-run`.
+* Tokenizer files are copied, never built: GGUF-embedded vocabularies are
+  not reconstructed into `tokenizer.json`.
+* Verifier `--sampled` threshold (64 MiB) and tolerance floors are
+  heuristics, not tunable config.
+* `est_output_bytes` for slice/reshape pipelines is approximate.
+* No remote/CI wheel-build job publishing artifacts (local builds only;
+  no public release channel exists yet).
 
 ## Next
 

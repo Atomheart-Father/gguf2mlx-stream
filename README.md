@@ -104,7 +104,11 @@ reproduced.
 ## Quickstart
 
 ```bash
-pip install -e '.[loadtest]'   # engine + mlx-lm for the load/generation contract
+pip install gguf2mlx-stream            # wheel: the four official configs are built in
+pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
+
+# list the built-in architecture configs shipped with the package
+gguf2mlx-stream list-configs
 
 # optional: fetch the pinned small integration GGUFs + tokenizers (network)
 python scripts/fetch_integration_models.py
@@ -113,24 +117,33 @@ python scripts/fetch_integration_models.py
 gguf2mlx-stream inspect ~/models/qwen.gguf --tensors
 
 # compile the conversion plan without touching tensor data (dry-run/plan view)
-gguf2mlx-stream convert ~/models/qwen.gguf --arch-config configs/qwen3_5.yaml --dry-run
+gguf2mlx-stream convert ~/models/qwen.gguf --arch-config qwen3_5 --dry-run
 
 # convert (bounded memory; transactional output; standard MLX-LM dir)
 gguf2mlx-stream convert ~/models/qwen.gguf \
-  --arch-config configs/qwen3_5.yaml \
+  --arch-config qwen3_5 \
   --output ./my-model-mlx-6bit \
   --bits 6 --group-size 64 --mode affine \
   --source-config ~/models/qwen-hf/config.json \
   --tokenizer-source ~/models/qwen-hf
 
-# verify output against source: coverage, shapes, finiteness, numeric spot checks
+# verify output against source: every quantized tensor is numerically
+# recomputed and compared; shapes, finiteness, index/shard parity, and the
+# output's recorded quantization parameters are all checked
 gguf2mlx-stream verify ~/models/qwen.gguf ./my-model-mlx-6bit \
-  --arch-config configs/qwen3_5.yaml --bits 6
+  --arch-config qwen3_5 --bits 6
 ```
 
-The output contract is `mlx_lm.load(path)` plus tokenizer files. `--dry-run`
-prints the full plan (every job, drop, and estimate) so mapping mistakes are
-caught before any weights move.
+`--arch-config` accepts a built-in config name (no clone needed), a YAML
+path, or nothing at all — when omitted, the config is auto-detected from the
+GGUF's `general.architecture` if exactly one built-in config accepts it.
+`--dry-run` prints the full plan (every job, drop, and estimate) so mapping
+mistakes are caught before any weights move.
+
+The output contract is `mlx_lm.load(path)`. A conversion fails
+transactionally — never replacing an existing output — when the tokenizer
+source cannot supply a loadable tokenizer (`tokenizer.json` or
+`tokenizer.model`, plus `tokenizer_config.json`).
 
 ## The non-negotiable memory rule
 
@@ -163,6 +176,8 @@ read quantized GGUF tensor/chunk → bounded dequantization → transform
   shard limit still lands in its own shard.
 * llama.cpp (`llama-completion`) is an *optional* external semantic
   cross-check — this tool never requires it.
+* No canonical public repository URL is advertised yet; the project is
+  distributed as a local/private package until a real upstream exists.
 
 ## Development
 

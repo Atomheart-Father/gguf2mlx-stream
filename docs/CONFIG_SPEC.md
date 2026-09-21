@@ -139,8 +139,10 @@ Rule names are optional but must be unique. Unknown keys are rejected.
 
 `drop: true` plus `range: {start: <spec>, end: <spec>}` restricts a rule to
 a **half-open block-index range**. The match pattern must contain the
-reserved `{i}` placeholder; the planner compiles the rule to the prefixes
-`blk.{i}.` for every `i` in `[start, end)`. `end <= start` matches nothing.
+reserved `{i}` placeholder and declares *itself* how block tensor names are
+built — nothing is hardcoded: for every `i` in `[start, end)` the planner
+substitutes `{i}` (dim placeholders are substituted first) and the result
+must `fullmatch` the tensor name. `end <= start` matches nothing.
 This is how NextN/MTP blocks are removed explicitly: `start` is the real
 layer count and `end` the total block count, where
 `n_layers = block_count − nextn_predict_layers`. A plain (non-range) drop

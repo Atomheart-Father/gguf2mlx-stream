@@ -211,11 +211,11 @@ def test_step_args_literal_list_spec(tmp_path):
                 "dest": "t.weight",
                 "steps": [
                     {"op": "reshape",
-                     "args": {"shape": {"list": [2, "half", 3, "hidden"]}}},
+                     "args": {"shape": {"list": [2, "half", "half"]}}},
                     {"op": "permute",
-                     "args": {"axes": {"list": [0, 2, 1, 3]}}},
+                     "args": {"axes": {"list": [1, 0, 2]}}},
                     {"op": "reshape",
-                     "args": {"shape": {"list": [{"mul": [2, "vocab"]}, "hidden"]}}},
+                     "args": {"shape": {"list": ["vocab", "hidden"]}}},
                 ],
             },
         ],
@@ -224,9 +224,9 @@ def test_step_args_literal_list_spec(tmp_path):
     plan = plan_conversion(arch_config_from_dict(raw), src)
     assert plan.dims["half"] == 4
     (job,) = plan.jobs
-    assert job.steps[0].args["shape"] == [2, 4, 3, 4]
-    assert job.steps[1].args["axes"] == [0, 2, 1, 3]
-    assert job.steps[2].args["shape"] == [16, 4]
+    assert job.steps[0].args["shape"] == [2, 4, 4]
+    assert job.steps[1].args["axes"] == [1, 0, 2]
+    assert job.steps[2].args["shape"] == [8, 4]
 
 
 def test_slot_slices_resolved(tmp_path):
@@ -273,3 +273,170 @@ def test_arch_mismatch_lenient(tmp_path, capsys):
     plan = plan_conversion(arch_config_from_dict(raw), src)
     assert plan.jobs
     assert "WARNING" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# declarative range drops (P1): no hardcoded block-name prefix
+# ---------------------------------------------------------------------------
+
+def test_range_drop_names_declared_by_match_template(tmp_path):
+    """A range drop rule matches exactly what its {i} match template
+    declares — any name pattern, not a hardcoded blk.{i}. prefix."""
+    tensors = [("tok.weight", np.zeros((8, 4), np.float32))]
+    for i in range(2):
+        tensors.append((f"mtp.{i}.hidden.weight", np.zeros((4,), np.float32)))
+        tensors.append((f"mtp.{i}.ffn.weight", np.zeros((4, 4), np.float32)))
+    src = GGUFSource(write_gguf(
+        tmp_path / "m.gguf", arch="tiny",
+        metadata={"block_count": 2, "embedding_length": 4},
+        f32_tensors=tensors,
+    ))
+    raw = base_config(
+        rules=[
+            {"match": "mtp\\.{i}\\..*", "drop": True,
+             "range": {"start": 0, "end": 2}},
+            {"match": "tok\\.weight", "dest": "model.tok.weight"},
+        ],
+        coverage={},
+    )
+    plan = plan_conversion(arch_config_from_dict(raw), src)
+    dropped = [name for name, _ in plan.dropped]
+    assert dropped == ["mtp.0.hidden.weight", "mtp.0.ffn.weight",
+                       "mtp.1.hidden.weight", "mtp.1.ffn.weight"]
+    assert {j.dest for j in plan.jobs} == {"model.tok.weight"}
+
+
+def test_range_drop_respects_index_bounds(tmp_path):
+    tensors = [("tok.weight", np.zeros((8, 4), np.float32))]
+    for i in range(3):
+        tensors.append((f"mtp.{i}.ffn.weight", np.zeros((4, 4), np.float32)))
+    src = GGUFSource(write_gguf(
+        tmp_path / "m.gguf", arch="tiny",
+        metadata={"block_count": 3, "embedding_length": 4},
+        f32_tensors=tensors,
+    ))
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[
+            # only block index 1 is inside [1, 2)
+            {"match": "mtp\\.{i}\\..*", "drop": True,
+             "range": {"start": 1, "end": 2}},
+            {"match": "tok\\.weight", "dest": "model.tok.weight"},
+        ],
+        coverage={},
+    )
+    plan = plan_conversion(arch_config_from_dict(raw), src)
+    assert [name for name, _ in plan.dropped] == ["mtp.1.ffn.weight"]
+    assert plan.unmatched == ("mtp.0.ffn.weight", "mtp.2.ffn.weight")
+
+
+# ---------------------------------------------------------------------------
+# plan-time pipeline shape validation (P1)
+# ---------------------------------------------------------------------------
+
+def test_invalid_reshape_fails_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "steps": [{"op": "reshape", "args": {"shape": {"list": [100, 4]}}}],
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="reshape"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_invalid_permute_args_fail_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "steps": [
+                {"op": "reshape", "args": {"shape": {"list": [2, 2, 2, 4]}}},
+                {"op": "permute", "args": {"axes": {"list": [0, 1, 2, 9]}}},
+            ],
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="permute|axes"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_invalid_unsqueeze_axis_fails_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "steps": [{"op": "unsqueeze", "args": {"axis": 99}}],
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="unsqueeze"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_incompatible_concat_fails_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "inputs": {
+                "a": {"slice": {"axis": 0, "lo": 0, "hi": 2}},
+                "b": {"slice": {"axis": 0, "lo": 2, "hi": 4}},
+            },
+            "steps": [{"op": "concat", "inputs": ["a", "b"], "args": {"axis": 5}}],
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="concat|axis"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_quantized_rule_producing_non_2d_fails_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "steps": [{"op": "reshape", "args": {"shape": {"list": [2, 2, 2, 4]}}}],
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="2-D"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_valid_pipeline_shape_records_out_shape(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "quantize": False,
+            "steps": [
+                {"op": "reshape", "args": {"shape": {"list": [2, "half", "half"]}}},
+                {"op": "permute", "args": {"axes": {"list": [1, 0, 2]}}},
+                {"op": "reshape", "args": {"shape": {"list": ["vocab", "hidden"]}}},
+            ],
+        }],
+        coverage={},
+        dims={
+            "hidden": "gguf:embedding_length",
+            "vocab": {"mul": [2, "hidden"]},
+            "half": {"div": ["vocab", 2]},
+        },
+    )
+    plan = plan_conversion(arch_config_from_dict(raw), src)
+    (job,) = plan.jobs
+    assert job.out_shape == (8, 4)

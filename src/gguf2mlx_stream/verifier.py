@@ -4,11 +4,18 @@ Checks a converted MLX-LM directory against its source GGUF and the
 architecture config:
 
 * index / shard consistency and key-set parity with the plan;
+* bidirectional index <-> shard key-set checks (unindexed tensors, stale
+  index entries and unreferenced shard files are all rejected);
+* quantization parameter validation against ``config.json`` (bits,
+  group_size, mode); explicit CLI arguments that conflict with the output
+  metadata are a hard failure;
 * shape checks for every planned tensor;
 * finiteness (NaN/inf) checks for every tensor in the output;
-* numeric spot checks: planned tensors are recomputed from the GGUF through
-  the same operator pipeline and compared against the saved weights
-  (dequantized first for quantized tensors);
+* numeric checks: by default *every* quantized output tensor is recomputed
+  from the GGUF through the same operator pipeline and compared against the
+  saved weights (dequantized first). Sampled checking (first tensor per
+  rule + small tensors) is available as an explicit opt-in via
+  ``sampled=True`` / ``--sampled``.
 * structural quantization checks (packed/scales/biases triple shapes);
 * optional ``mlx_lm.load()`` smoke test.
 
@@ -64,6 +71,57 @@ def _load_output(out_dir: str) -> tuple[dict[str, str], dict[str, Any]]:
     return index["weight_map"], index.get("metadata", {})
 
 
+def _check_index_shard_parity(
+    out_dir: str, weight_map: Mapping[str, str], report: VerifyReport
+) -> None:
+    """Bidirectional index <-> shard key-set check.
+
+    Every key the index maps into a shard must exist there, every key in an
+    indexed shard must be listed in the index, and every ``*.safetensors``
+    file in the directory must be referenced by the index.
+    """
+    indexed: dict[str, set[str]] = {}
+    for key, fname in weight_map.items():
+        indexed.setdefault(fname, set()).add(key)
+    for fname in sorted(indexed):
+        path = os.path.join(out_dir, fname)
+        if not os.path.isfile(path):
+            report.failures.append(f"missing shard file {fname}")
+            continue
+        with safe_open(path, framework="numpy") as f:
+            actual = set(f.keys())
+        want = indexed[fname]
+        for k in sorted(want - actual):
+            report.failures.append(
+                f"index maps {k!r} to {fname}, which does not contain it"
+            )
+        for k in sorted(actual - want):
+            report.failures.append(f"{fname} contains unindexed key {k!r}")
+    present = {f for f in os.listdir(out_dir) if f.endswith(".safetensors")}
+    for fname in sorted(present - set(indexed)):
+        report.failures.append(f"shard file {fname} is not referenced by the index")
+
+
+def _read_output_quantization(out_dir: str) -> dict[str, Any]:
+    """Read the quantization block from the output's config.json."""
+    cfg_path = os.path.join(out_dir, "config.json")
+    if not os.path.isfile(cfg_path):
+        raise VerifyError(f"{out_dir}: missing config.json")
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    q = cfg.get("quantization") or cfg.get("quantization_config")
+    if not q:
+        raise VerifyError("output is not quantized; verify expects a quantized output")
+    q = dict(q)
+    for field_name in ("bits", "group_size", "mode"):
+        if field_name not in q or q[field_name] is None:
+            raise VerifyError(
+                f"output config.json quantization is missing {field_name!r}; "
+                "a complete gguf2mlx-stream output always records it"
+            )
+    return q
+
+
 def _saved(out_dir: str, weight_map: Mapping[str, str], key: str) -> np.ndarray:
     with safe_open(os.path.join(out_dir, weight_map[key]), framework="numpy") as f:
         if key not in f.keys():
@@ -113,20 +171,27 @@ def verify_conversion(
     source: GGUFSource,
     out_dir: str,
     bits: int | None = None,
-    group_size: int = 64,
+    group_size: int | None = None,
+    mode: str | None = None,
     tolerance: float | None = None,
-    verify_all_quantized: bool = False,
+    sampled: bool = False,
     check_finite_all: bool = True,
 ) -> VerifyReport:
-    """Run all checks; returns a report (never raises for check failures)."""
+    """Run all checks; returns a report (never raises for check failures).
+
+    Numeric coverage policy: by default every quantized output tensor is
+    numerically recomputed and compared. ``sampled=True`` explicitly opts
+    into the cheaper strategy (first tensor per rule + tensors whose source
+    is smaller than 64 MiB). ``bits``/``group_size``/``mode`` default to the
+    values recorded in the output's config.json; explicitly passing a
+    different value is a hard failure.
+    """
     report = VerifyReport()
     weight_map, meta = _load_output(out_dir)
     out_keys = set(weight_map)
 
-    # shard files exist
-    for fname in sorted(set(weight_map.values())):
-        if not os.path.isfile(os.path.join(out_dir, fname)):
-            report.failures.append(f"missing shard file {fname}")
+    # bidirectional index <-> shard consistency (and unindexed shard files)
+    _check_index_shard_parity(out_dir, weight_map, report)
 
     # key-set parity with the plan (quantized jobs also emit scales/biases)
     planned = set()
@@ -143,16 +208,24 @@ def verify_conversion(
     if missing:
         report.failures.append(f"plan keys missing from output: {missing[:5]}")
 
-    # per-job checks
-    quant_cfg_bits = bits
-    if quant_cfg_bits is None:
-        cfg_path = os.path.join(out_dir, "config.json")
-        if os.path.isfile(cfg_path):
-            with open(cfg_path) as f:
-                q = json.load(f).get("quantization")
-            quant_cfg_bits = int(q["bits"]) if q else None
-    if quant_cfg_bits is None:
-        raise VerifyError("output is not quantized; verify expects a quantized output")
+    # quantization parameters: config.json is the source of truth; explicit
+    # CLI arguments must agree with it
+    q = _read_output_quantization(out_dir)
+    cfg_bits, cfg_group, cfg_mode = int(q["bits"]), int(q["group_size"]), str(q["mode"])
+    if bits is not None and bits != cfg_bits:
+        raise VerifyError(
+            f"--bits {bits} conflicts with output config.json quantization.bits {cfg_bits}"
+        )
+    if group_size is not None and group_size != cfg_group:
+        raise VerifyError(
+            f"--group-size {group_size} conflicts with output config.json "
+            f"quantization.group_size {cfg_group}"
+        )
+    if mode is not None and mode != cfg_mode:
+        raise VerifyError(
+            f"--mode {mode!r} conflicts with output config.json quantization.mode {cfg_mode!r}"
+        )
+    quant_cfg_bits, dequant_group = cfg_bits, cfg_group
 
     seen_rules: set[str] = set()
     for job in plan.jobs:
@@ -175,16 +248,25 @@ def verify_conversion(
             if scales.shape[0] != rows or biases.shape[0] != rows:
                 report.failures.append(f"{job.dest}: scales/biases row mismatch")
             report.checked_shapes += 1
-            # numeric spot checks are sampled: first job per rule + small tensors
+            # default: numerically check EVERY quantized tensor; sampling is
+            # an explicit opt-in (first job per rule + small tensors)
             small = job.source.n_bytes < 64 * 2**20
-            do_numeric = verify_all_quantized or small or (job.rule.display_name not in seen_rules)
+            do_numeric = (not sampled) or small or (job.rule.display_name not in seen_rules)
             seen_rules.add(job.rule.display_name)
             if not do_numeric:
                 continue
             expected = _recompute(plan, source, job)
-            got = np.asarray(
-                dequantize_weights(packed, scales, biases, quant_cfg_bits, group_size)
-            )
+            try:
+                got = np.asarray(
+                    dequantize_weights(packed, scales, biases, quant_cfg_bits, dequant_group)
+                )
+            except Exception as exc:
+                report.failures.append(
+                    f"{job.dest}: recorded quantization parameters (bits={quant_cfg_bits}, "
+                    f"group_size={dequant_group}) do not match the saved weights: {exc}"
+                )
+                report.checked_numeric += 1
+                continue
             # scale-aware default tolerance: one quantization step of the
             # tensor's value range, floored at a small absolute value
             tol = tolerance

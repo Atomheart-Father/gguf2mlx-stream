@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import write_gguf  # noqa: E402
+from conftest import write_gguf, write_minimal_tokenizer  # noqa: E402
 
 from gguf2mlx_stream.config.schema import load_arch_config  # noqa: E402
 from gguf2mlx_stream.errors import ConversionError, PlanError  # noqa: E402
@@ -88,12 +88,17 @@ def _tiny_qwen35_gguf(tmp_path: Path) -> Path:
     ))
 
 
-def _runner(gguf: Path, out: Path, config_path: Path | None = None) -> ConversionRunner:
+def _runner(gguf: Path, out: Path, config_path: Path | None = None,
+            tokenizer_source: Path | None = None) -> ConversionRunner:
     cfg = load_arch_config(str(config_path or QWEN35_YAML))
     source = GGUFSource(str(gguf))
     plan = plan_conversion(cfg, source)
-    return ConversionRunner(plan, source, str(out),
-                            quant=QuantSettings(bits=None), log=lambda _: None)
+    return ConversionRunner(
+        plan, source, str(out),
+        quant=QuantSettings(bits=None),
+        tokenizer_source=str(tokenizer_source) if tokenizer_source else write_minimal_tokenizer(out.parent / "tokenizer"),
+        log=lambda _: None,
+    )
 
 
 def test_failed_conversion_leaves_no_partial_output(tmp_path, monkeypatch):
@@ -165,7 +170,70 @@ def test_missing_required_config_field_fails(tmp_path):
     source = GGUFSource(str(gguf))
     plan = plan_conversion(cfg, source)
     runner = ConversionRunner(plan, source, str(out),
-                              quant=QuantSettings(bits=None), log=lambda _: None)
+                              quant=QuantSettings(bits=None),
+                              tokenizer_source=write_minimal_tokenizer(tmp_path / "tokenizer"),
+                              log=lambda _: None)
     with pytest.raises((ConversionError, PlanError)):
         runner.run()
     assert not out.exists()
+
+
+# ---------------------------------------------------------------------------
+# tokenizer output contract (P1): no tokenizer, no successful conversion
+# ---------------------------------------------------------------------------
+
+def test_missing_tokenizer_files_fail_and_preserve_previous_output(tmp_path):
+    gguf = _tiny_qwen35_gguf(tmp_path)
+    out = tmp_path / "model-out"
+    _runner(gguf, out).run()
+    sentinel = out / "sentinel.txt"
+    sentinel.write_text("previous output")
+
+    empty = tmp_path / "no-tokenizer"
+    empty.mkdir()
+    with pytest.raises(ConversionError, match="tokenizer"):
+        _runner(gguf, out, tokenizer_source=empty).run(overwrite=True)
+
+    assert sentinel.exists(), "previous output must be preserved on tokenizer failure"
+    leftovers = [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name or ".old-" in p.name]
+    assert not leftovers, f"staging leftovers: {leftovers}"
+
+
+def test_tokenizer_config_json_is_required(tmp_path):
+    gguf = _tiny_qwen35_gguf(tmp_path)
+    out = tmp_path / "model-out"
+
+    partial = tmp_path / "vocab-only"
+    write_minimal_tokenizer(partial)
+    (partial / "tokenizer_config.json").unlink()
+
+    with pytest.raises(ConversionError, match="tokenizer_config.json"):
+        _runner(gguf, out, tokenizer_source=partial).run()
+
+    assert not out.exists()
+    leftovers = [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name or ".old-" in p.name]
+    assert not leftovers
+
+
+def test_invalid_tokenizer_json_fails(tmp_path):
+    gguf = _tiny_qwen35_gguf(tmp_path)
+    out = tmp_path / "model-out"
+
+    broken = tmp_path / "broken-tokenizer"
+    write_minimal_tokenizer(broken)
+    (broken / "tokenizer.json").write_text("{not json")
+
+    with pytest.raises(ConversionError, match="tokenizer.json"):
+        _runner(gguf, out, tokenizer_source=broken).run()
+
+    assert not out.exists()
+
+
+def test_valid_tokenizer_produces_loadable_contract_files(tmp_path):
+    gguf = _tiny_qwen35_gguf(tmp_path)
+    out = tmp_path / "model-out"
+    _runner(gguf, out).run()
+    from gguf2mlx_stream.writer import check_tokenizer_output
+    check_tokenizer_output(str(out))  # must not raise
+    assert (out / "tokenizer.json").is_file()
+    assert (out / "tokenizer_config.json").is_file()

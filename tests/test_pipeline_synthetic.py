@@ -28,6 +28,7 @@ from conftest import (
     q4_expected,
     q6_expected,
     write_gguf,
+    write_minimal_tokenizer,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -201,6 +202,7 @@ def test_full_pipeline(tmp_path):
         "convert", str(gguf_path),
         "--arch-config", QWEN35_YAML,
         "--output", str(out_dir),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer"),
         "--bits", "4", "--group-size", "64",
         "--chunk-mb", "1",  # tiny chunks -> exercise the streaming path
         "--quiet",

@@ -2,12 +2,17 @@
 
     gguf2mlx-stream inspect        model.gguf
     gguf2mlx-stream list-ops
-    gguf2mlx-stream validate-config configs/qwen3_5.yaml
-    gguf2mlx-stream convert        model.gguf --arch-config configs/qwen3_5.yaml --output ./out [options]
-    gguf2mlx-stream verify         model.gguf ./out --arch-config configs/qwen3_5.yaml [options]
+    gguf2mlx-stream list-configs
+    gguf2mlx-stream validate-config configs/qwen3_5.yaml   (or a built-in name)
+    gguf2mlx-stream convert        model.gguf --arch-config qwen3_5 --output ./out [options]
+    gguf2mlx-stream verify         model.gguf ./out --arch-config qwen3_5 [options]
 
-All commands are non-interactive and scriptable. ``convert --dry-run``
-prints the compiled conversion plan without touching any tensor data.
+``--arch-config`` accepts a built-in config name (the four official configs
+ship inside the wheel) or a YAML path; when omitted, the config is
+auto-detected from the GGUF's ``general.architecture`` if exactly one
+built-in config accepts it. All commands are non-interactive and scriptable.
+``convert --dry-run`` prints the compiled conversion plan without touching
+any tensor data.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import json
 import os
 import sys
 
-from .config.schema import load_arch_config
+from .builtin import builtin_config_names, load_builtin_config, resolve_arch_config
 from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
@@ -29,7 +34,12 @@ from .verifier import load_test, verify_conversion
 
 def _add_common_convert_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("gguf", help="source GGUF file")
-    p.add_argument("--arch-config", required=True, help="architecture YAML config")
+    p.add_argument(
+        "--arch-config",
+        default=None,
+        help="architecture config: built-in name (qwen3_5/qwen3/llama/gemma3) or "
+        "YAML path; omitted = auto-detect from the GGUF architecture",
+    )
     p.add_argument(
         "--source-config",
         default=None,
@@ -38,7 +48,8 @@ def _add_common_convert_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--tokenizer-source",
         default=None,
-        help="directory to copy tokenizer files from (default: GGUF's directory)",
+        help="directory to copy tokenizer files from (default: GGUF's directory); "
+        "must provide a loadable tokenizer (see the tokenizer output contract)",
     )
 
 
@@ -73,11 +84,25 @@ def cmd_list_ops(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_list_configs(args: argparse.Namespace) -> int:
+    names = builtin_config_names()
+    if not names:
+        print("no built-in architecture configs found", file=sys.stderr)
+        return 1
+    print(f"built-in architecture configs ({len(names)}):")
+    for name in names:
+        cfg = load_builtin_config(name)
+        ga = cfg.architecture.gguf_arch
+        ga = list(ga) if isinstance(ga, tuple) else ga
+        print(f"  {name:<10} id={cfg.architecture.id:<10} gguf_arch={ga}")
+    return 0
+
+
 def cmd_validate_config(args: argparse.Namespace) -> int:
-    config = load_arch_config(args.config)
+    config, desc = resolve_arch_config(args.config)
     n_rules = len(config.rules)
     n_drop = sum(1 for r in config.rules if r.drop)
-    print(f"OK {args.config}")
+    print(f"OK {desc}")
     print(f"  architecture : {config.architecture.id} (aliases: {config.architecture.aliases})")
     print(f"  rules        : {n_rules} ({n_drop} drop rules)")
     print(f"  dims declared: {len(config.dims)}")
@@ -95,8 +120,10 @@ def _load_ref_config(path: str | None) -> dict | None:
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
-    config = load_arch_config(args.arch_config)
     source = GGUFSource(args.gguf)
+    config, desc = resolve_arch_config(args.arch_config, source.arch)
+    if not args.quiet:
+        print(f"[config] {desc}")
     ref = _load_ref_config(args.source_config)
     tokenizer_source = args.tokenizer_source or os.path.dirname(os.path.abspath(args.gguf))
 
@@ -148,8 +175,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    config = load_arch_config(args.arch_config)
     source = GGUFSource(args.gguf)
+    config, desc = resolve_arch_config(args.arch_config, source.arch)
     ref = _load_ref_config(args.source_config)
     plan = plan_conversion(config, source, ref_config=ref)
 
@@ -159,8 +186,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         args.output_dir,
         bits=args.bits,
         group_size=args.group_size,
+        mode=args.mode,
         tolerance=args.tolerance,
-        verify_all_quantized=args.all,
+        sampled=args.sampled,
     )
     for line in report.details[: args.max_details]:
         print(line)
@@ -203,8 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list-ops", help="list registered transformation operators")
     p.set_defaults(fn=cmd_list_ops)
 
+    p = sub.add_parser("list-configs", help="list built-in architecture configs")
+    p.set_defaults(fn=cmd_list_configs)
+
     p = sub.add_parser("validate-config", help="validate an architecture config")
-    p.add_argument("config")
+    p.add_argument("config", help="built-in config name or YAML path")
     p.set_defaults(fn=cmd_validate_config)
 
     p = sub.add_parser("convert", help="convert GGUF to an MLX-LM checkpoint")
@@ -229,10 +260,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common_convert_args(p)
     p.add_argument("output_dir")
     p.add_argument("--bits", type=int, default=None, choices=SUPPORTED_BITS,
-                   help="quantization bits (default: read from output config.json)")
-    p.add_argument("--group-size", type=int, default=64)
+                   help="quantization bits (default: read from output config.json; "
+                   "a value conflicting with the output metadata fails)")
+    p.add_argument("--group-size", type=int, default=None,
+                   help="quantization group size (default: read from output config.json; "
+                   "a value conflicting with the output metadata fails)")
+    p.add_argument("--mode", default=None, choices=("affine",),
+                   help="quantization mode (default: read from output config.json; "
+                   "a value conflicting with the output metadata fails)")
     p.add_argument("--tolerance", type=float, default=None)
-    p.add_argument("--all", action="store_true", help="numerically check every quantized tensor")
+    p.add_argument("--sampled", action="store_true",
+                   help="explicitly opt in to sampled numeric checks (first tensor per "
+                   "rule + small tensors); by default EVERY quantized tensor is checked")
     p.add_argument("--load-test", action="store_true", help="run mlx_lm.load() + short generation")
     p.add_argument("--prompt", default="What is 2+2? Answer with just the number.")
     p.add_argument("--max-tokens", type=int, default=32)

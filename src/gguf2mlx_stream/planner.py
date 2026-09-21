@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping
 from .config.schema import ArchConfig, InputSlot, OpStep, Rule, SliceSpec
 from .errors import PlanError
 from .ops import all_ops
+from .ops.base import OpContext
 from .source.gguf import GGUFSource, TensorInfo
 
 # ---------------------------------------------------------------------------
@@ -165,6 +166,7 @@ class PlannedJob:
     dtype: str
     est_source_bytes: int
     est_output_bytes: int
+    out_shape: tuple[int, ...]  # pipeline output shape, validated at plan time
 
     @property
     def chunkable(self) -> bool:
@@ -232,10 +234,6 @@ class ConversionPlan:
 # ---------------------------------------------------------------------------
 
 
-class _RangeMatch:
-    """Truthiness-only match marker for range drop rules (no capture groups)."""
-
-
 def _substitute_dims(
     pattern: str, dims: Mapping[str, int], where: str, reserved: tuple[str, ...] = ()
 ) -> str:
@@ -276,6 +274,79 @@ def _slot_rows(source: GGUFSource, tensor: TensorInfo, sl: SliceSpec | None, res
     return None, SliceSpec(axis=axis, lo=lo, hi=hi)
 
 
+def _slot_shape(tensor: TensorInfo, rows: tuple[int, int] | None, in_mem: SliceSpec | None) -> tuple[int, ...]:
+    """Shape of a slot input as the runner will produce it (slices applied)."""
+    shape = list(tensor.hf_shape)
+    if rows is not None:
+        shape[0] = rows[1] - rows[0]
+    elif in_mem is not None:
+        axis = in_mem.axis
+        if not (-len(shape) <= axis < len(shape)):
+            raise PlanError(
+                f"slot slice axis {axis} out of range for rank {len(shape)}"
+            )
+        hi = in_mem.hi if in_mem.hi is not None else shape[axis]
+        lo, hi, _ = slice(int(in_mem.lo), int(hi)).indices(int(shape[axis]))
+        shape[axis] = max(0, hi - lo)
+    return tuple(int(d) for d in shape)
+
+
+def _validate_pipeline_shapes(
+    steps: tuple[OpStep, ...],
+    slot_shapes: Mapping[str, tuple[int, ...]],
+    dims: Mapping[str, int],
+    where: str,
+) -> tuple[int, ...]:
+    """Walk the operator pipeline with shape tuples only.
+
+    Validates operator arguments (missing params, out-of-range axes, non
+    divisible block sizes, reshape products, concat compatibility, ...)
+    and the final output shape *before any tensor data is read*, so that a
+    broken config fails as a ``PlanError`` instead of a runtime
+    TypeError/IndexError/ValueError deep inside conversion.
+    """
+    available = {name: tuple(int(d) for d in s) for name, s in slot_shapes.items()}
+    prev: str | None = None
+    ctx = OpContext(dims=dims)
+    for i, step in enumerate(steps):
+        w = f"{where} step {i} ({step.op})"
+        spec = all_ops().get(step.op)
+        if spec is None:
+            raise PlanError(f"{w}: unknown operator")
+        if spec.infer_shape is None:
+            raise PlanError(
+                f"{w}: operator provides no plan-time shape inference"
+            )
+        if step.inputs:
+            missing = [n for n in step.inputs if n not in available]
+            if missing:
+                raise PlanError(f"{w}: input(s) {missing} not available")
+            order = list(step.inputs)
+            shapes = {n: available[n] for n in order}
+        else:
+            key = step.input or prev or "x"
+            if key == "_":
+                key = prev
+            if key is None or key not in available:
+                raise PlanError(f"{w}: input {step.input!r} not available")
+            order = [key]
+            shapes = {key: available[key]}
+        try:
+            out = tuple(int(d) for d in spec.infer_shape(shapes, order, dict(step.args), ctx))
+        except PlanError:
+            raise
+        except Exception as exc:
+            raise PlanError(f"{w}: {exc}") from None
+        if not out or any(d <= 0 for d in out):
+            raise PlanError(f"{w}: produces an empty output shape {list(out)}")
+        key = step.output or f"_step{i}"
+        available[key] = out
+        prev = key
+    if prev is None:
+        raise PlanError(f"{where}: pipeline produced no output")
+    return available[prev]
+
+
 def plan_conversion(
     config: ArchConfig,
     source: GGUFSource,
@@ -304,16 +375,26 @@ def plan_conversion(
             end = resolver.resolve(rule.block_range[1], f"{where}.range.end", dims)
             if not isinstance(start, int) or not isinstance(end, int):
                 raise PlanError(f"{where}: range bounds must resolve to ints")
-            prefixes = tuple(f"blk.{i}." for i in range(start, end))
-            if prefixes:
+            # The match pattern itself declares how block tensor names are
+            # built: the reserved {i} placeholder is substituted with each
+            # block index in [start, end) and the result must fullmatch the
+            # tensor name. No block-name prefix is hardcoded here.
+            base = _substitute_dims(rule.match, dims, where, reserved=("i",))
+            per_index: list[re.Pattern] = []
+            for i in range(start, end):
+                try:
+                    per_index.append(re.compile(re.sub(r"\{i\}", str(i), base)))
+                except re.error as exc:
+                    raise PlanError(
+                        f"{where}: invalid regex at block index {i}: {exc}"
+                    ) from None
 
-                def _match(name: str, _ps=prefixes) -> re.Match | None:
-                    return _RangeMatch() if any(name.startswith(p) for p in _ps) else None
-
-            else:
-
-                def _match(name: str, _ps=prefixes) -> re.Match | None:
-                    return None
+            def _match(name: str, _rxs=tuple(per_index)) -> re.Match | None:
+                for rx in _rxs:
+                    m = rx.fullmatch(name)
+                    if m:
+                        return m
+                return None
 
             compiled.append((rule, _match))
         else:
@@ -417,6 +498,24 @@ def plan_conversion(
                     )
 
             est_out = _estimate_output_bytes(tensor, rule)
+            # plan-time pipeline shape validation: operator args, axis
+            # ranges, divisibility and the final output shape are checked
+            # with shape tuples only — no tensor data is read here
+            slot_shapes = {
+                sname: _slot_shape(tensor, rows, in_mem)
+                for (sname, _, rows), (_, _, in_mem) in zip(slots, slot_specs)
+            }
+            if steps:
+                final_shape = _validate_pipeline_shapes(
+                    steps, slot_shapes, dims, f"{where}: pipeline"
+                )
+            else:
+                final_shape = next(iter(slot_shapes.values()))
+            if rule.quantize and len(final_shape) != 2:
+                raise PlanError(
+                    f"{where}: quantized rule must produce a 2-D output, "
+                    f"pipeline produces {list(final_shape)}"
+                )
             job = PlannedJob(
                 dest=dest,
                 rule=rule,
@@ -428,6 +527,7 @@ def plan_conversion(
                 dtype=rule.dtype,
                 est_source_bytes=est_src,
                 est_output_bytes=est_out,
+                out_shape=final_shape,
             )
             jobs.append(job)
             dest_map[dest] = rule.display_name

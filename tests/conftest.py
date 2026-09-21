@@ -145,3 +145,25 @@ def venv_python() -> str:
     import sys
 
     return sys.executable
+
+
+def write_minimal_tokenizer(directory) -> str:
+    """Create a directory satisfying the tokenizer output contract.
+
+    The conversion-time contract check validates file presence, non-emptiness
+    and JSON parseability — not that a full tokenizer works (that is the job
+    of the mlx_lm.load()-based integration stages).
+    """
+    import json
+    import os
+
+    os.makedirs(directory, exist_ok=True)
+    tok = {
+        "version": "1.0",
+        "model": {"vocab": {"<unk>": 0, "a": 1, "b": 2}, "merges": []},
+    }
+    with open(os.path.join(directory, "tokenizer.json"), "w") as f:
+        json.dump(tok, f)
+    with open(os.path.join(directory, "tokenizer_config.json"), "w") as f:
+        json.dump({"tokenizer_class": "PreTrainedTokenizerFast"}, f)
+    return str(directory)

@@ -31,6 +31,12 @@ class OpSpec:
     summary: str
     params: tuple[tuple[str, str], ...] = ()  # (param name, description)
     inputs_doc: str = "x"  # description of expected named inputs
+    # Optional plan-time shape inference:
+    #   infer_shape(shapes, order, args, ctx) -> output shape tuple
+    # where ``shapes`` maps input slot names to shape tuples. Operators that
+    # provide it can be fully validated by the planner before any tensor is
+    # read; the planner refuses to plan operators without it.
+    infer_shape: Callable | None = None
 
     @property
     def streaming(self) -> bool:
@@ -53,6 +59,7 @@ def register_op(
     summary: str,
     params: tuple[tuple[str, str], ...] = (),
     inputs_doc: str = "x",
+    infer_shape: Callable | None = None,
 ) -> Callable:
     """Class/function decorator registering an operator under ``name``."""
 
@@ -63,7 +70,7 @@ def register_op(
             raise ValueError(f"operator {name}: unknown kind {kind!r}")
         _REGISTRY[name] = OpSpec(
             name=name, fn=fn, kind=kind, summary=summary, params=tuple(params),
-            inputs_doc=inputs_doc,
+            inputs_doc=inputs_doc, infer_shape=infer_shape,
         )
         return fn
 

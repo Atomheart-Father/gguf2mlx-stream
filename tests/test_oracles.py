@@ -16,7 +16,7 @@ from safetensors.numpy import load_file
 
 sys.path.insert(0, str(Path(__file__).parent))
 import oracle_impl as oracle  # noqa: E402
-from conftest import write_gguf  # noqa: E402
+from conftest import write_gguf, write_minimal_tokenizer  # noqa: E402
 
 from gguf2mlx_stream.config.schema import load_arch_config  # noqa: E402
 from gguf2mlx_stream.planner import plan_conversion  # noqa: E402
@@ -143,7 +143,9 @@ def test_grouped_head_reorder_ratio_matrix(tmp_path, ratio):
     plan = plan_conversion(cfg, source)
     out = tmp_path / "out"
     runner = ConversionRunner(plan, source, str(out),
-                              quant=QuantSettings(bits=None), log=lambda _: None)
+                              quant=QuantSettings(bits=None),
+                              tokenizer_source=write_minimal_tokenizer(tmp_path / "tokenizer"),
+                              log=lambda _: None)
     runner.run()
     tensors_out = {}
     for f in out.glob("*.safetensors"):
@@ -369,7 +371,9 @@ def test_llama_qk_unpermute_oracle(tmp_path):
     plan = plan_conversion(cfg, source)
     out = tmp_path / "out"
     runner = ConversionRunner(plan, source, str(out),
-                              quant=QuantSettings(bits=None), log=lambda _: None)
+                              quant=QuantSettings(bits=None),
+                              tokenizer_source=write_minimal_tokenizer(tmp_path / "tokenizer"),
+                              log=lambda _: None)
     runner.run()
     tensors_out = {}
     for f in out.glob("*.safetensors"):

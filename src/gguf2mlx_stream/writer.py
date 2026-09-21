@@ -133,3 +133,77 @@ def copy_tokenizer_files(source_dir: str, out_dir: str, filenames: list[str]) ->
             shutil.copy2(src, os.path.join(out_dir, fn))
             copied.append(fn)
     return copied
+
+
+# ---------------------------------------------------------------------------
+# tokenizer output contract
+# ---------------------------------------------------------------------------
+#
+# A successful conversion MUST produce a directory whose tokenizer can be
+# loaded by ``mlx_lm.load()``. The minimal file set that guarantees this is:
+#
+#   * one vocab-capable tokenizer file — ``tokenizer.json`` (fast tokenizer,
+#     fully self-describing) or ``tokenizer.model`` (sentencepiece);
+#   * ``tokenizer_config.json`` — carries the tokenizer class, special
+#     tokens and (for our target families) the chat template; without it
+#     the directory is not a standard MLX-LM model directory.
+#
+# Conversions fail transactionally when this set cannot be produced: the
+# staging directory is discarded and an existing output is never replaced.
+
+TOKENIZER_VOCAB_FILES = ("tokenizer.json", "tokenizer.model")
+TOKENIZER_CONFIG_FILE = "tokenizer_config.json"
+
+
+def _nonempty_file(directory: str, name: str) -> bool:
+    path = os.path.join(directory, name)
+    return os.path.isfile(path) and os.path.getsize(path) > 0
+
+
+def describe_tokenizer_status(directory: str) -> str:
+    vocab = [f for f in TOKENIZER_VOCAB_FILES if _nonempty_file(directory, f)]
+    has_cfg = _nonempty_file(directory, TOKENIZER_CONFIG_FILE)
+    return f"vocab={vocab or 'none'} {TOKENIZER_CONFIG_FILE}={'yes' if has_cfg else 'no'}"
+
+
+def check_tokenizer_available(source_dir: str) -> None:
+    """Fail fast *before* conversion when the source cannot supply a tokenizer."""
+    if not any(_nonempty_file(source_dir, f) for f in TOKENIZER_VOCAB_FILES):
+        raise ConversionError(
+            f"tokenizer source {source_dir!r} has no usable tokenizer file: one of "
+            f"{list(TOKENIZER_VOCAB_FILES)} is required (pass --tokenizer-source "
+            "pointing at a directory with HF tokenizer files, e.g. the model's "
+            "tokenizer/ snapshot)"
+        )
+    if not _nonempty_file(source_dir, TOKENIZER_CONFIG_FILE):
+        raise ConversionError(
+            f"tokenizer source {source_dir!r} is missing {TOKENIZER_CONFIG_FILE}, "
+            "which is required for a standard MLX-LM model directory"
+        )
+    _validate_tokenizer_json(source_dir, "tokenizer source")
+
+
+def check_tokenizer_output(out_dir: str) -> None:
+    """Fail before commit when the staged output lacks a loadable tokenizer."""
+    if not any(_nonempty_file(out_dir, f) for f in TOKENIZER_VOCAB_FILES):
+        raise ConversionError(
+            f"output directory {out_dir!r} would lack a loadable tokenizer: none of "
+            f"{list(TOKENIZER_VOCAB_FILES)} present "
+            f"({describe_tokenizer_status(out_dir)})"
+        )
+    if not _nonempty_file(out_dir, TOKENIZER_CONFIG_FILE):
+        raise ConversionError(
+            f"output directory {out_dir!r} would lack {TOKENIZER_CONFIG_FILE}"
+        )
+    _validate_tokenizer_json(out_dir, "output")
+
+
+def _validate_tokenizer_json(directory: str, what: str) -> None:
+    path = os.path.join(directory, "tokenizer.json")
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            json.load(f)
+    except (OSError, ValueError) as exc:
+        raise ConversionError(f"{what} has an invalid tokenizer.json: {exc}") from exc

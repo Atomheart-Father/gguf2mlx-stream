@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-21 04:27:04",
-  "total_wall_s": 725.3,
+  "generated_at": "2026-09-21 05:58:50",
+  "total_wall_s": 702.9,
   "host": "Apple M4 Pro, 24 GB unified memory",
   "mlx_version": "0.31.2",
   "mlx_lm_version": "0.31.3",
@@ -52,19 +52,19 @@
       "validate_config": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 0.1,
+        "elapsed_s": 0.2,
         "stderr": ""
       },
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 4.8,
+        "elapsed_s": 4.7,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 90.4,
-        "peak_rss_gib": 4.217987060546875,
+        "elapsed_s": 90.5,
+        "peak_rss_gib": 4.259735107421875,
         "n_jobs": 320,
         "n_dropped": 0,
         "dims": {
@@ -114,12 +114,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 8.9,
+        "elapsed_s": 8.7,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 6.3,
+        "elapsed_s": 6.8,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -246,8 +246,8 @@
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 92.8,
-        "peak_rss_gib": 4.4512786865234375,
+        "elapsed_s": 90.6,
+        "peak_rss_gib": 4.4948883056640625,
         "n_jobs": 320,
         "n_dropped": 0,
         "dims": {
@@ -297,12 +297,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 11.7,
+        "elapsed_s": 9.4,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 7.3,
+        "elapsed_s": 6.5,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -416,13 +416,13 @@
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 3.1,
+        "elapsed_s": 3.0,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 55.2,
-        "peak_rss_gib": 3.3981170654296875,
+        "elapsed_s": 54.1,
+        "peak_rss_gib": 3.49774169921875,
         "n_jobs": 310,
         "n_dropped": 0,
         "dims": {
@@ -460,12 +460,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 5.7,
+        "elapsed_s": 5.5,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 5.8,
+        "elapsed_s": 4.6,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -584,8 +584,8 @@
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 54.3,
-        "peak_rss_gib": 3.4754791259765625,
+        "elapsed_s": 55.4,
+        "peak_rss_gib": 3.531341552734375,
         "n_jobs": 310,
         "n_dropped": 0,
         "dims": {
@@ -623,12 +623,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 6.2,
+        "elapsed_s": 6.0,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 5.4,
+        "elapsed_s": 5.0,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -744,13 +744,13 @@
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 3.7,
+        "elapsed_s": 3.8,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 34.6,
-        "peak_rss_gib": 4.19525146484375,
+        "elapsed_s": 34.5,
+        "peak_rss_gib": 4.127655029296875,
         "n_jobs": 146,
         "n_dropped": 1,
         "dims": {
@@ -788,12 +788,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 8.1,
+        "elapsed_s": 7.1,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 4.6,
+        "elapsed_s": 3.7,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -909,13 +909,13 @@
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 3.8,
+        "elapsed_s": 3.5,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 35.4,
-        "peak_rss_gib": 4.288330078125,
+        "elapsed_s": 34.7,
+        "peak_rss_gib": 4.37408447265625,
         "n_jobs": 146,
         "n_dropped": 1,
         "dims": {
@@ -953,12 +953,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 9.6,
+        "elapsed_s": 7.6,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 5.2,
+        "elapsed_s": 4.4,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -1073,13 +1073,13 @@
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 4.0,
+        "elapsed_s": 3.8,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 56.4,
-        "peak_rss_gib": 3.4942169189453125,
+        "elapsed_s": 55.5,
+        "peak_rss_gib": 3.761138916015625,
         "n_jobs": 236,
         "n_dropped": 0,
         "dims": {
@@ -1118,12 +1118,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 5.2,
+        "elapsed_s": 4.9,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 5.0,
+        "elapsed_s": 4.5,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",
@@ -1238,13 +1238,13 @@
       "dry_run": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 4.0,
+        "elapsed_s": 3.8,
         "stderr": ""
       },
       "convert": {
         "status": "PASS",
-        "elapsed_s": 56.5,
-        "peak_rss_gib": 3.53717041015625,
+        "elapsed_s": 55.6,
+        "peak_rss_gib": 3.7998809814453125,
         "n_jobs": 236,
         "n_dropped": 0,
         "dims": {
@@ -1283,12 +1283,12 @@
       "verify": {
         "status": "PASS",
         "rc": 0,
-        "elapsed_s": 5.2,
+        "elapsed_s": 4.8,
         "stderr": ""
       },
       "mlx_generation": {
         "status": "PASS",
-        "elapsed_s": 4.7,
+        "elapsed_s": 4.2,
         "generations": [
           {
             "prompt": "The capital of France is? Answer with just the city name.",

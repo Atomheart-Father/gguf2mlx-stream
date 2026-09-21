@@ -7,6 +7,67 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Initial alpha release.
 
+### Release-gate hardening (P1, folded into this release before publication)
+
+- **Built-in architecture configs**: the repository-root `configs/` remains
+  the authoritative source; hatchling force-includes it into the wheel as
+  `gguf2mlx_stream/configs/`. `gguf2mlx-stream list-configs` lists them;
+  `--arch-config` now accepts a built-in name, an explicit YAML path, or can
+  be omitted entirely (auto-detect from the GGUF's `general.architecture`
+  when exactly one built-in config accepts it). Editable/source checkouts
+  fall back to the repository `configs/` directory. Wheel content is tested
+  for byte-parity with the repo configs and version agreement.
+- **Tokenizer output contract**: a conversion may only succeed if the output
+  directory will contain a loadable tokenizer (`tokenizer.json` or
+  `tokenizer.model`, plus `tokenizer_config.json`). Enforced before any
+  tensor is read and again on the staged output before the commit; failures
+  abort the transaction and never replace an existing output.
+- **Verifier full numeric coverage by default**: every quantized output
+  tensor is recomputed from the source and compared. Sampling (first tensor
+  per rule + small tensors) is an explicit opt-in (`verify --sampled`).
+- **Bidirectional index/shard validation**: unindexed keys inside shards,
+  stale index entries and unreferenced shard files are all rejected, in
+  addition to plan key-set parity.
+- **Quantization-parameter validation**: `verify` reads `bits`,
+  `group_size`, `mode` from the output's config.json; explicit CLI values
+  conflicting with the recorded metadata fail, and weights that cannot be
+  dequantized under the recorded parameters are reported failures instead
+  of crashing.
+- **Plan-time pipeline shape inference**: every registered operator now
+  carries a shape-inference function; the planner validates each job's
+  operator pipeline (axes, divisibility, reshape products, concat
+  compatibility, final shape; quantized rules must be 2-D) with shape
+  tuples only, before any tensor data is read. Invalid dims/rank/operator
+  parameters raise `PlanError` instead of runtime
+  `TypeError`/`IndexError`/`ValueError`.
+- New tests: verifier tamper/parity/quant-parameter regressions,
+  tokenizer-contract negative transaction tests, planner range/shape tests,
+  packaging tests (wheel contents, clean resolution, auto-detect).
+
+### Changed (P1)
+
+- **Range drop rules are fully declarative**: the rule's own `match`
+  template (reserved `{i}` placeholder, `fullmatch` per block index) defines
+  which tensors a range drops — the previous hardcoded `blk.{i}.` prefix is
+  gone. Existing configs already declare `blk\.{i}\..*` and are unchanged in
+  behavior.
+- `verify` CLI: `--all` replaced by `--sampled` (inverted, explicit
+  opt-in); `--group-size` and the new `--mode` default to the output
+  config.json instead of assuming values.
+- Version management: `__version__` in `src/gguf2mlx_stream/__init__.py` is
+  the single source of truth (hatch dynamic versioning), aligned to
+  `0.1.0a1`.
+
+### Removed (P1)
+
+- The placeholder `Homepage` URL (no canonical public repository exists
+  yet). `pyproject.toml` carries no `[project.urls]` until a real upstream
+  exists.
+
+## [0.1.0a1] - 2026-09-21
+
+Initial alpha release.
+
 ### Added
 
 - Compiler-like core: declarative YAML architecture configs compiled into a

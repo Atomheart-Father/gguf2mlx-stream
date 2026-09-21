@@ -37,6 +37,8 @@ from .source.gguf import GGUFSource
 from .writer import (
     ShardedSafetensorsWriter,
     build_output_config,
+    check_tokenizer_available,
+    check_tokenizer_output,
     copy_tokenizer_files,
 )
 
@@ -170,6 +172,10 @@ class ConversionRunner:
         the index, config.json, and tokenizer files are complete. A failed
         conversion never leaves a partial model at the output path, and an
         existing output is never replaced without ``overwrite=True``.
+
+        The tokenizer output contract is enforced before any tensor is read
+        (tokenizer source must be able to supply a loadable tokenizer) and
+        again on the staged output right before the commit.
         """
         out_path = os.path.abspath(self.out_dir)
         parent = os.path.dirname(out_path)
@@ -181,6 +187,8 @@ class ConversionRunner:
                 f"output directory {out_path!r} already exists and is not empty; "
                 "pass --overwrite to replace it"
             )
+        if self.tokenizer_source:
+            check_tokenizer_available(self.tokenizer_source)
         stage = f"{out_path}.tmp-{uuid.uuid4().hex[:8]}"
         old = f"{out_path}.old-{uuid.uuid4().hex[:8]}"
         os.makedirs(stage)
@@ -227,6 +235,7 @@ class ConversionRunner:
         stats.n_shards = writer.n_shards
 
         self._emit_config(out_dir, writer, index)
+        copied: list[str] = []
         if self.tokenizer_source:
             copied = copy_tokenizer_files(
                 self.tokenizer_source,
@@ -234,6 +243,10 @@ class ConversionRunner:
                 list(self.plan.config.output.tokenizer_files),
             )
             self.log(f"[out] tokenizer files copied: {copied or 'none found'}")
+        # tokenizer output contract: a successful conversion is always a
+        # loadable MLX-LM directory; otherwise the transaction aborts here,
+        # before the staged output can replace an existing model
+        check_tokenizer_output(out_dir)
 
         stats.elapsed_s = time.time() - t0
         stats.peak_rss_gib = peak_rss_gib()

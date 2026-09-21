@@ -6,7 +6,7 @@ real-model integration matrix.
 
 ```bash
 .venv/bin/python -m pytest tests/ -q
-# current baseline: 84 passed, 3 skipped
+# current baseline: 110 passed, 3 skipped
 # (the 3 skips are the env-gated real-GGUF tests, absent assets)
 
 python -m pytest -m integration -q   # only the env-gated real-GGUF tests
@@ -21,8 +21,11 @@ ruff check src tests scripts
 | `test_ops_generic.py` | every generic operator: semantics, ordering, purity (inputs unmutated), chunk-safety classification, validation errors |
 | `test_plugin_qwen35.py` | v-head unpermute: rows/cols, block=1 vectors, dim resolution, round-trip against a `zip` reference |
 | `test_config_schema.py` | config grammar: unknown ops/keys, bad regex, bad dims, drop-rule constraints, duplicate names, `{list: ...}` forms, YAML object-injection rejection |
-| `test_planner.py` | matching, dest templating (groups vs dims), conflicts, unmatched policy, unused required rules, `expect_shape`, coverage, dim fallback chains, slot resolution, range-drop compilation, arch checks |
+| `test_planner.py` | matching, dest templating (groups vs dims), conflicts, unmatched policy, unused required rules, `expect_shape`, coverage, dim fallback chains, slot resolution, range-drop compilation (declared by the `{i}` match template, not a hardcoded prefix), arch checks, plan-time pipeline shape validation (bad reshape/permute/unsqueeze/concat args, non-2-D quantized outputs, `out_shape` recording) |
 | `test_quantize_writer.py` | 4/6-bit quantize→dequantize round-trips, packing shapes, bad group rejection; shard splitting, `-of-N` renaming, index totals |
+| `test_verifier.py` | verifier credibility: tampered later-layer tensor of an already-seen rule is caught (full numeric coverage by default; sampling is `--sampled` opt-in), extra key inside a shard rejected, unindexed shard file rejected, `bits`/`group_size`/`mode` read from config.json with CLI-conflict failures, sampled opt-in still passes clean outputs |
+| `test_transactional.py` | failed conversions leave no partial output and no staging leftovers; existing outputs need `--overwrite`; missing required config fields fail loudly; **tokenizer output contract**: missing tokenizer files / missing `tokenizer_config.json` / invalid `tokenizer.json` each fail the transaction and preserve the previous output |
+| `test_packaging.py` | built-in config discovery + loading, `--arch-config` name/path/auto-detect resolution, `list-configs` CLI, wheel content: the four official configs byte-identical to the repo-root `configs/`, wheel metadata version == runtime `__version__`, auto-detected conversion without `--arch-config` |
 
 ## B. Synthetic end-to-end pipeline (`test_pipeline_synthetic.py`)
 
@@ -76,7 +79,12 @@ values:
 * an existing non-empty output is never replaced without `--overwrite`
   (an empty pre-created directory is);
 * a config that cannot produce a **required config.json field** fails the
-  conversion loudly instead of silently relying on mlx-lm defaults.
+  conversion loudly instead of silently relying on mlx-lm defaults;
+* the **tokenizer output contract** is transactional: a tokenizer source
+  without a vocab file (`tokenizer.json`/`tokenizer.model`), without
+  `tokenizer_config.json`, or with an invalid `tokenizer.json` fails the
+  conversion — before any tensor is read or at commit time — and never
+  replaces the previous output.
 
 ## E. Structural regression vs. proven reference (`test_nyx_parity.py`)
 
@@ -142,6 +150,12 @@ inspect → validate-config → dry-run → convert → structural
 * **llamacpp**: the *source* GGUF is generated with `llama-completion`
   (raw continuations + chat turns) for semantic comparison records;
   token-for-token identity is not expected after requantization.
+* **verify**: the release gate runs the default verifier — full numeric
+  coverage (every quantized tensor recomputed from the source), index/shard
+  parity, quantization-parameter validation against the output's
+  config.json, finiteness checks. On the 8-variant matrix this adds a
+  bounded per-tensor recompute pass (peak memory unchanged: one tensor at a
+  time).
 * **oMLX stage** (`--omlx`): spins up `omlx-cli serve` on a dedicated port
   with its own model directory — it never touches a user's running oMLX
   instance — then checks discovery of all converted outputs and
@@ -151,3 +165,21 @@ inspect → validate-config → dry-run → convert → structural
 
 Latest published run: 8/8 variants PASS (4 families × Q4_K_M + Q6_K),
 all outputs discovered by the isolated oMLX server.
+
+## H. Clean-install acceptance (release gate)
+
+After building the wheel:
+
+```bash
+python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+python -m venv /tmp/fresh-venv && /tmp/fresh-venv/bin/pip install dist/*.whl
+/tmp/fresh-venv/bin/gguf2mlx-stream list-configs          # 4 built-ins, no clone
+/tmp/fresh-venv/bin/gguf2mlx-stream validate-config llama  # builtin by name
+/tmp/fresh-venv/bin/gguf2mlx-stream convert tiny.gguf --output out \
+    --tokenizer-source tokenizer/ --bits 4 --quiet         # --arch-config omitted:
+/tmp/fresh-venv/bin/gguf2mlx-stream verify tiny.gguf out   # auto-detect + full verify
+```
+
+`test_packaging.py` covers the same guarantees from inside pytest (wheel
+contents byte-parity with the repo `configs/`, version agreement, config
+resolution).

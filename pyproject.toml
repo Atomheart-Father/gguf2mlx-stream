@@ -4,7 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gguf2mlx-stream"
-version = "0.1.0a1"
+# single source of truth: [tool.hatch.version] reads __version__ below
+dynamic = ["version"]
 description = "Declarative, bounded-memory GGUF -> MLX-LM checkpoint streaming transcoder"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,17 +36,25 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "ruff>=0.6", "hatchling>=1.24"]
 loadtest = ["mlx-lm>=0.31.3"]
 
 [project.scripts]
 gguf2mlx-stream = "gguf2mlx_stream.cli:main"
 
-[project.urls]
-Homepage = "https://github.com/gguf2mlx-stream/gguf2mlx-stream"
+# No [project.urls] yet: there is no real canonical repository URL to
+# advertise. Add Homepage only once a public repo exists.
+
+[tool.hatch.version]
+path = "src/gguf2mlx_stream/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gguf2mlx_stream"]
+# The repository-root configs/ directory is the authoritative source for the
+# official architecture configs; it is included verbatim into the wheel under
+# the package so installed users can use built-in configs without a clone.
+# (Editable installs fall back to the repo directory; see builtin.py.)
+force-include = { "configs" = "gguf2mlx_stream/configs" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

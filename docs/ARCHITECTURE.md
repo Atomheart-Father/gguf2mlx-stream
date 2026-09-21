@@ -19,14 +19,15 @@ GGUF file ──► GGUFSource ──► Planner ──► ConversionPlan ──
 |---|---|
 | `source/gguf.py` | GGUF reading + bounded dequantization (no model knowledge) |
 | `config/schema.py` | config dataclasses, parsing, static schema validation |
-| `planner.py` | `DimResolver`, plan compilation, pre-weight validation |
-| `ops/generic.py`, `ops/registry.py`, `ops/base.py` | generic operators + registry |
+| `planner.py` | `DimResolver`, plan compilation, pre-weight validation incl. pipeline shape inference |
+| `ops/generic.py`, `ops/registry.py`, `ops/base.py` | generic operators + registry (every op carries a plan-time shape-inference function) |
 | `ops/plugins/qwen35.py` | thin architecture plugin (delegates to a generic op) |
 | `quantize.py` | MLX affine quantization |
-| `writer.py` | sharding, index, config.json emission, tokenizer copying |
+| `writer.py` | sharding, index, config.json emission, tokenizer copying + tokenizer output contract |
 | `runner.py` | bounded execution loop, transactional output staging |
-| `verifier.py` | post-conversion verification |
-| `cli.py` | `inspect` / `list-ops` / `validate-config` / `convert` / `verify` |
+| `verifier.py` | post-conversion verification (full numeric coverage by default) |
+| `builtin.py` | built-in architecture config discovery (wheel-packaged `configs/`, repo fallback, auto-detect) |
+| `cli.py` | `inspect` / `list-ops` / `list-configs` / `validate-config` / `convert` / `verify` |
 
 ## Layers
 
@@ -109,7 +110,9 @@ Compiles config + source into a `ConversionPlan` *before* reading weights:
   metadata/refs; fallback chains, literal lists, nested mappings);
 * substitutes `{dim}` placeholders in match patterns, compiles anchored
   regexes, matches every GGUF tensor to the first matching rule, and
-  compiles range-drop rules to `blk.{i}.` prefixes over `[start, end)`;
+  compiles range-drop rules per block index: the rule's own match template
+  (with the reserved `{i}` placeholder) declares the name pattern for each
+  index in `[start, end)` — no name prefix is hardcoded;
 * resolves dest templates (match groups take precedence over dims), slot
   slices (axis-0 → row ranges for bounded reads), and operator args;
 * validation before any tensor data moves: destination conflicts, unmatched
@@ -117,6 +120,14 @@ Compiles config + source into a `ConversionPlan` *before* reading weights:
   shape mismatches (`expect_shape`), coverage failures
   (`per_layer_required` / `per_layer_alternatives` over the layer range),
   and arch-identifier checks;
+* **pipeline shape inference**: every registered operator carries a
+  shape-inference function; the planner walks each job's operator pipeline
+  with shape tuples only (source shapes, slot slices, resolved args) and
+  verifies every step's parameters (axes in range, divisibility, reshape
+  products, concat compatibility, permutation validity) and the final
+  output shape — invalid dims/rank/args surface as `PlanError` at plan
+  time, not as raw `TypeError`/`IndexError`/`ValueError` mid-conversion.
+  Quantized rules must produce 2-D outputs;
 * emits a dry-run summary (`convert --dry-run`) with every job, drop, and
   estimate — so mapping mistakes never require a real conversion to surface.
 
@@ -146,20 +157,46 @@ config's emission contract + quantization entries; reference config merge
 with drop-field policy; `required_fields` presence check), and tokenizer
 file copying.
 
-### 7. Verifier (`verifier.py`)
+The **tokenizer output contract** is enforced here and in the runner: a
+conversion may only succeed if the output directory will contain one
+vocab-capable tokenizer file (`tokenizer.json` or `tokenizer.model`) plus
+`tokenizer_config.json`. The check runs twice — on the tokenizer source
+before any tensor is read, and on the staged output before the transactional
+commit — so a conversion without a usable tokenizer fails and never replaces
+an existing output.
+
+### 7. Built-in configs (`builtin.py`)
+
+The repository-root `configs/` directory is the single authoritative source;
+hatchling force-includes it into the wheel as `gguf2mlx_stream/configs/`.
+Discovery order: packaged resource (installed wheel) → repository-root
+`configs/` (editable/source checkouts). `--arch-config` accepts a built-in
+name, an explicit YAML path, or nothing (auto-detect from the GGUF's
+`general.architecture` when exactly one built-in config accepts it).
+
+### 8. Verifier (`verifier.py`)
 
 Verification is part of the product, not an afterthought:
 
-* index/key-set parity with the plan (including `.scales`/`.biases`
-  companions);
+* bidirectional index/shard key-set parity: every index entry exists in its
+  shard, every key in an indexed shard is listed in the index, and every
+  `*.safetensors` file is referenced by the index — unindexed tensors, stale
+  index entries and unreferenced shard files are all rejected;
+* key-set parity with the plan (including `.scales`/`.biases` companions);
+* quantization parameters (`bits`, `group_size`, `mode`) are read from the
+  output's `config.json` and validated; explicit CLI values conflicting
+  with the recorded metadata are a hard failure, and weights that cannot be
+  dequantized under the recorded parameters are a reported failure;
 * per-tensor shape checks and global NaN/inf checks;
-* numeric spot checks: each sampled job is recomputed from the GGUF through
-  the same operator pipeline and compared to the saved tensor (dequantized
-  first for quantized outputs) with a scale-aware tolerance (one quant step
-  of the tensor's value range, floored per bit width);
-* optional `mlx_lm.load()` + short generation smoke test;
+* numeric checks with **full coverage by default**: every quantized tensor
+  is recomputed from the GGUF through the same operator pipeline and
+  compared to the saved tensor (dequantized first) with a scale-aware
+  tolerance (one quant step of the tensor's value range, floored per bit
+  width). Sampling (first tensor per rule + small tensors) is an explicit
+  opt-in (`--sampled`);
 * structural quantization checks (packed uint32 / f16 scales / f16 biases
-  shapes) for every quantized tensor.
+  shapes) for every quantized tensor;
+* optional `mlx_lm.load()` + short generation smoke test.
 
 ## Execution / memory contract
 

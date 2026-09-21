@@ -129,9 +129,10 @@ class Rule:
     inputs: Mapping[str, InputSlot] | None = None
     steps: tuple[OpStep, ...] = ()
     # drop rules may instead declare an explicit half-open block-index range
-    # [start, end): every tensor whose name starts with "blk.{i}." for i in
-    # range is dropped. end <= start matches nothing (e.g. nextn=0).
-    # The match pattern uses the reserved {i} placeholder.
+    # [start, end): the rule's match pattern (which must contain the reserved
+    # {i} placeholder) declares how block tensor names are built — {i} is
+    # substituted with each index in the range and the result must fullmatch
+    # the tensor name. end <= start matches nothing (e.g. nextn=0).
     block_range: tuple[Any, Any] | None = None
 
     @property
