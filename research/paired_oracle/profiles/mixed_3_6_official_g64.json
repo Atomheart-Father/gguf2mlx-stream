@@ -1,0 +1,7 @@
+{
+  "name": "mixed_3_6_official_g64",
+  "default": {"bits": 3, "group_size": 64},
+  "rules": [
+    {"match": "mlp\\.down_proj|self_attn\\.v_proj|model\\.embed_tokens", "bits": 6}
+  ]
+}
