@@ -8,30 +8,36 @@
   "sides": {
     "src": {
       "n": 100,
-      "accuracy": 0.86,
-      "clean_accuracy": 0.86,
-      "anomaly_rate": 0.0,
-      "anomaly_breakdown": {},
-      "anomaly_events": 0,
-      "letter_only_compliance": 0.0,
-      "median_gen_s": 1.676,
-      "total_gen_s": 190.1
+      "accuracy": 0.9,
+      "clean_accuracy": 0.9,
+      "anomaly_rate": 0.05,
+      "anomaly_breakdown": {
+        "no_letter": 5,
+        "truncated": 5,
+        "repetition_loop": 2
+      },
+      "anomaly_events": 12,
+      "letter_only_compliance": 0.05,
+      "median_gen_s": 2.05,
+      "total_gen_s": 484.3
     },
     "mlx-3bit": {
       "n": 100,
-      "accuracy": 0.76,
-      "clean_accuracy": 0.74,
-      "anomaly_rate": 0.03,
+      "accuracy": 0.83,
+      "clean_accuracy": 0.55,
+      "anomaly_rate": 0.41,
       "anomaly_breakdown": {
-        "repetition_loop": 3
+        "repetition_loop": 39,
+        "no_letter": 10,
+        "truncated": 10
       },
-      "anomaly_events": 3,
-      "letter_only_compliance": 0.0,
-      "median_gen_s": 2.994,
-      "total_gen_s": 254.9,
+      "anomaly_events": 59,
+      "letter_only_compliance": 0.1,
+      "median_gen_s": 20.521,
+      "total_gen_s": 1394.2,
       "gate": {
-        "clean_accuracy_gap_pp": 12.0,
-        "anomaly_rate_gap_pp": 3.0,
+        "clean_accuracy_gap_pp": 35.0,
+        "anomaly_rate_gap_pp": 36.0,
         "pass": false
       }
     }

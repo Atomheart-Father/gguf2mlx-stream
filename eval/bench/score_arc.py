@@ -24,14 +24,22 @@ GATE_ANOMALY_PP = 2.0
 
 
 def anomalies(rec: dict) -> list[str]:
+    """Blocking anomalies for a letter-answer task.
+
+    ``repetition_loop`` blocks only when the run also hit the token cap
+    (looped into the cap): a correct letter that was emitted before the
+    output degenerated into an endless loop is not a clean success —
+    mirroring the capability-eval rule that keyword-then-loop is not an
+    instruction success. Truncation without a letter means no answer was
+    produced at all.
+    """
     flags: list[str] = []
     if not rec.get("raw_output", "").strip():
         flags.append("empty_output")
     if rec.get("letter") is None:
         flags.append("no_letter")
-    if rec.get("repetition"):
+    if rec.get("repetition") and rec.get("truncated"):
         flags.append("repetition_loop")
-    # truncation only invalidates the answer when no letter made it out
     if rec.get("truncated") and rec.get("letter") is None:
         flags.append("truncated")
     return flags

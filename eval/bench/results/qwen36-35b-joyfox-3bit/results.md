@@ -4,10 +4,10 @@ Gate: candidate clean accuracy ≥ source − 5 pp AND anomaly rate ≤ source +
 
 | side | accuracy | clean accuracy | anomaly rate | letter-only | median gen (s) | size | conv RSS | conv time | verdict |
 |---|---|---|---|---|---|---|---|---|---|
-| src | 86.0% | 86.0% | 0.0% | 0.0% | 1.676 | — | — | — | source (reference) |
-| mlx-3bit | 76.0% | 74.0% | 3.0% | 0.0% | 2.994 | 14.14 | 12.06 | 446.3 | FAIL gate — experimental result only, not a recommended configuration |
+| src | 90.0% | 90.0% | 5.0% | 5.0% | 2.05 | — | — | — | source (reference) |
+| mlx-3bit | 83.0% | 55.0% | 41.0% | 10.0% | 20.521 | 14.14 | 12.06 | 446.3 | FAIL gate — experimental result only, not a recommended configuration |
 
 Anomaly breakdown per side:
 
-- **src**: none
-- **mlx-3bit**: {'repetition_loop': 3}
+- **src**: {'no_letter': 5, 'truncated': 5, 'repetition_loop': 2}
+- **mlx-3bit**: {'repetition_loop': 39, 'no_letter': 10, 'truncated': 10}

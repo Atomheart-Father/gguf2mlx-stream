@@ -1,0 +1,54 @@
+{
+  "output_bytes": 15181307392,
+  "n_tensors": 733,
+  "n_shards": 4,
+  "elapsed_s": 446.3112509250641,
+  "peak_rss_gib": 12.063629150390625,
+  "estimated_output_bytes": 34665405952,
+  "n_jobs": 733,
+  "n_dropped": 20,
+  "target_bits": 3,
+  "target_bits_selection": {
+    "requested": "auto",
+    "target_bits": 3,
+    "dominant_source_type": "IQ3_S",
+    "source_quant_histogram_bytes": {
+      "Q6_K": 417177600,
+      "IQ3_S": 13829376000,
+      "Q4_K": 1094123520
+    },
+    "source_quant_histogram_counts": {
+      "Q6_K": 1.0,
+      "IQ3_S": 371.0,
+      "Q4_K": 60.0
+    },
+    "reason": "auto: dominant source family 'IQ3_S' covers 90.1% of quantized source bytes (13188.7 MiB) and maps to 3 bits; the MLX output uses this global bit magnitude plus declared per-rule overrides, not a per-tensor source replica"
+  },
+  "dims": {
+    "hidden_size": 2048,
+    "total_blocks": 41,
+    "nextn_predict_layers": 1,
+    "n_layers": 40,
+    "vocab_size": 248320,
+    "n_heads": 16,
+    "n_kv_heads": 2,
+    "head_dim": 256,
+    "intermediate_size": 0,
+    "n_experts": 256,
+    "n_experts_used": 8,
+    "moe_intermediate_size": 512,
+    "shared_expert_intermediate_size": 512,
+    "linear_num_key_heads": 16,
+    "linear_key_head_dim": 128,
+    "linear_num_value_heads": 32,
+    "linear_value_head_dim": 128,
+    "linear_conv_kernel_dim": 4,
+    "full_attention_interval": 4,
+    "key_dim": 2048,
+    "value_dim": 4096,
+    "conv_dim": 8192,
+    "rms_norm_eps": 9.999999974752427e-07,
+    "rope_theta": 10000000.0,
+    "rope_dim": 64
+  }
+}

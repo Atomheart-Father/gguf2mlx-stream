@@ -28,6 +28,14 @@ LLAMA_PERF_RE = {
 }
 
 
+def answer_text(raw: str) -> str:
+    """Post-think text; repetition detection must not fire on deliberation,
+    which legitimately re-quotes options and self-corrects."""
+    if "</think>" in raw:
+        return raw.split("</think>", 1)[1]
+    return raw
+
+
 def is_repetition(text: str) -> bool:
     s = re.sub(r"\s+", " ", text.strip())
     if len(s) < 48:
@@ -65,7 +73,7 @@ def run_mlx(model_path: Path, subset_path: Path, out_path: Path,
                 "raw_output": text, "letter": letter,
                 "gen_s": round(gen_s, 3), "approx_out_tokens": n_out,
                 "truncated": n_out >= max_tokens - 1,
-                "repetition": is_repetition(text),
+                "repetition": is_repetition(answer_text(text)),
                 "extra_text": bool(letter) and len(text.strip()) > len(letter) + 2,
                 "max_tokens": max_tokens, "temp": 0.0, "side": "mlx",
             }, ensure_ascii=False) + "\n")
@@ -101,7 +109,7 @@ def run_llamacpp(gguf: Path, subset_path: Path, out_path: Path,
                 "raw_output": raw, "letter": letter,
                 "gen_s": round(gen_s, 3), "eval_tokens": runs,
                 "truncated": runs is not None and runs >= max_tokens - 1,
-                "repetition": is_repetition(raw),
+                "repetition": is_repetition(answer_text(raw)),
                 "extra_text": bool(letter) and len(raw) > len(letter) + 2,
                 "returncode": proc.returncode,
                 "max_tokens": max_tokens, "temp": 0.0, "ctx": ctx,
