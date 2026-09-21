@@ -1,0 +1,7 @@
+{
+  "name": "mixed_3_6_sensitive_g64",
+  "default": {"bits": 3, "group_size": 64},
+  "rules": [
+    {"match": "linear_attn\\.in_proj_a|linear_attn\\.in_proj_b|self_attn\\.k_proj", "bits": 6}
+  ]
+}
