@@ -27,6 +27,12 @@ from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
 from .constants import SUPPORTED_BITS
+from .quant_profile import (
+    QuantProfile,
+    apply_quant_profile,
+    load_quant_profile,
+    resolve_default_bits,
+)
 from .quant_select import BitsDecision, experimental_guard, select_target_bits
 from .runner import ConversionRunner, QuantSettings
 from .source.gguf import GGUFSource
@@ -161,12 +167,31 @@ def cmd_convert(args: argparse.Namespace) -> int:
     config, desc = resolve_arch_config(args.arch_config, source.arch)
     if not args.quiet:
         print(f"[config] {desc}")
+    profile: QuantProfile | None = None
+    if getattr(args, "quant_profile", None):
+        if args.no_quantize:
+            raise SystemExit("--quant-profile cannot be combined with --no-quantize")
+        profile = load_quant_profile(args.quant_profile)
+        config, applications, unmatched = apply_quant_profile(config, profile)
+        if not args.quiet:
+            print(f"[profile] {profile.name}: {len(applications)} rule(s) overridden, "
+                  f"default_bits={profile.default_bits}")
+            for app in applications:
+                print(f"[profile]   {app.rule_display_name} -> bits={app.bits} "
+                      f"group_size={app.group_size}")
+            for pattern in unmatched:
+                print(f"[profile] WARNING: overlay '{pattern}' matched no quantized rule")
     ref = _load_ref_config(args.source_config)
     tokenizer_source = args.tokenizer_source or os.path.dirname(os.path.abspath(args.gguf))
 
     plan = plan_conversion(config, source, ref_config=ref)
-    decision = select_target_bits(plan, None if args.no_quantize else args.bits)
+    effective_bits = resolve_default_bits(
+        None if args.no_quantize else args.bits, profile
+    )
+    decision = select_target_bits(plan, effective_bits)
     bits_record = decision.as_record()
+    if profile:
+        bits_record["quant_profile"] = profile.as_record()
     try:
         guard = experimental_guard(
             plan, decision, allow_experimental=bool(args.allow_experimental)
@@ -313,6 +338,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--group-size", type=int, default=64)
     p.add_argument("--mode", default="affine", choices=("affine",))
+    p.add_argument("--quant-profile", default=None,
+                   help="opt-in JSON profile overriding per-rule quantization "
+                   "(bits/group_size by dest-name regex, e.g. mixed 3/4-bit "
+                   "experiments); see research/paired_oracle; data only, no "
+                   "code; the profile is recorded in the output config.json")
     p.add_argument("--no-quantize", action="store_true", help="write float16 weights")
     p.add_argument("--dry-run", action="store_true", help="print plan and exit")
     p.add_argument("--max-shard-gb", type=float, default=None,
