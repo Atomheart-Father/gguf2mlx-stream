@@ -59,20 +59,25 @@ python eval/bench/score_arc.py --side src=... --side 3bit=... ... \
 
 ## Published results
 
-- `results/llama32-1b-calibration/` — small-model 3/4/6-bit calibration:
-  **3-bit FAILS the gate** (clean accuracy −19 pp vs source; its outputs
-  loop into the token cap on 8 items after answering); 4-bit and 6-bit pass.
+- `results/llama32-1b-3bit-groups/` — **3-bit group-size calibration**
+  (same Llama-3.2-1B Q4_K_M source → MLX 3-bit at group sizes 32/64/128):
+  **all three FAIL the gate** (clean accuracy 31%/29%/31% vs source 48%;
+  finer groups reduce loop anomalies but not the accuracy deficit);
+  4-bit and 6-bit references PASS.
+- `results/llama32-1b-calibration/` — earlier 3/4/6-bit spot check
+  (g64 only; superseded by the group-size matrix above).
 - `results/qwen36-35b-joyfox-3bit/` — JoyFox 35B source (i1-IQ3_M) vs MLX
   3-bit (`--bits auto`): **FAILS the gate** (clean 55% vs 90%; the deficit
-  concentrates in raw-completion protocol fragility — 10 items where the
-  thinking model never closed `<think>` within the 512-token budget and 39
-  items that answered, then looped into the cap while continuing the quiz).
-  Answer-level accuracy when a letter was produced: 83% vs source 90%, and
-  89% among items where thinking closed — the conversion itself preserves
-  answer quality, but the candidate run is not clean enough to promote.
+  concentrates in raw-completion protocol fragility for a thinking model —
+  10 unclosed `<think>` at the 512-token budget, 39 answer-then-loop-to-cap
+  continuations). Answer-level accuracy when a letter was produced: 83% vs
+  source 90%, and 89% among items where thinking closed. Conversion
+  evidence archived alongside.
 
-**Gate conclusion (2026-09-21):** a 3-bit target is **NOT promoted** as a
-default recommendation for IQ3-dominant sources. `--bits auto` still
-*derives* 3-bit from the histogram (that is the declared mapping), but the
-recommendation status stays **experimental** until a protocol under which
-the candidate runs cleanly passes the gate.
+**Gate conclusion (2026-09-21):** "3-bit can convert" is proven
+(14.14 GiB output, verify ALL OK, bounded RSS, coherent generation), but
+"3-bit is usable as a default" is rejected by the data. IQ3 → 3 stays an
+**explicit experimental option** — `--bits auto` for `qwen35moe` + IQ3
+sources is blocked behind `--allow-experimental` — and is **not** a
+default recommendation, until a calibrated configuration passes the gate.
+See `results/FINAL_REPORT.md`.
