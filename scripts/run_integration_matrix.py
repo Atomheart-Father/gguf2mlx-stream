@@ -51,7 +51,8 @@ CHAT_PROMPTS = [
 
 
 def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+    # callers inspect .returncode themselves and embed stderr in their reports
+    return subprocess.run(cmd, capture_output=True, text=True, check=False, **kw)
 
 
 def printable_ratio(s: str) -> float:
@@ -170,7 +171,7 @@ print(json.dumps(results))
         return {"status": "FAIL", "elapsed_s": elapsed, "stderr": r.stderr[-2000:]}
     try:
         results = json.loads(r.stdout.strip().splitlines()[-1])
-    except Exception as exc:
+    except (ValueError, IndexError) as exc:
         return {"status": "FAIL", "elapsed_s": elapsed, "stderr": f"parse: {exc}"}
     gens = []
     for res in results:
@@ -231,10 +232,13 @@ def stage_omlx(models: list[Path], port: int = 8965) -> dict:
     # dummy credential for the throwaway local server on 127.0.0.1 only
     api_key = os.environ.get("OMLX_MATRIX_KEY", "gguf2mlx-matrix-local-key")
     log_path = INTEGRATION_DIR / f"omlx-{port}.log"
+    # the log file must stay open for the lifetime of the server process, so a
+    # plain open() handed to Popen is intentional here
+    log_handle = open(log_path, "w")  # noqa: SIM115
     proc = subprocess.Popen(
         [cli, "serve", "--model-dir", str(models[0].parent), "--host", "127.0.0.1",
          "--port", str(port), "--api-key", api_key, "--log-level", "info"],
-        stdout=open(log_path, "w"), stderr=subprocess.STDOUT,
+        stdout=log_handle, stderr=subprocess.STDOUT,
     )
     import urllib.request
 
@@ -253,7 +257,7 @@ def stage_omlx(models: list[Path], port: int = 8965) -> dict:
                     discovered = {m["id"] for m in json.load(resp)["data"]}
                 up = True
                 break
-            except Exception:
+            except Exception:  # noqa: BLE001 — readiness probe: any error means retry
                 time.sleep(1)
         if not up:
             return {"status": "FAIL", "reason": "server did not start",
@@ -284,11 +288,11 @@ def stage_omlx(models: list[Path], port: int = 8965) -> dict:
                 loaded.append({"model": p.name, "status": "PASS",
                                "expected_hit": "391" in text,
                                "output": text.strip()[:300]})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — every transport error is reported per-model
                 body = ""
                 try:
                     body = exc.read().decode()[:300]  # type: ignore[union-attr]
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 — body capture is best-effort only
                     pass
                 loaded.append({"model": p.name, "status": "FAIL",
                                "error": f"{type(exc).__name__}: {exc} {body}"})
@@ -299,7 +303,7 @@ def stage_omlx(models: list[Path], port: int = 8965) -> dict:
         proc.terminate()
         try:
             proc.wait(timeout=15)
-        except Exception:
+        except subprocess.TimeoutExpired:
             proc.kill()
 
 
@@ -426,9 +430,9 @@ def main() -> int:
 
 def _pkg_version(name: str) -> str:
     try:
-        from importlib.metadata import version
+        from importlib.metadata import PackageNotFoundError, version
         return version(name)
-    except Exception:
+    except PackageNotFoundError:
         return "?"
 
 
@@ -441,8 +445,8 @@ def _llama_version() -> str:
 def _to_markdown(s: dict) -> str:
     lines = [
         "# Integration Matrix", "",
-        f"*Generated: {s['generated_at']} | host: {s['host']} | "
-        f"mlx {s['mlx_version']} | mlx-lm {s['mlx_lm_version']} | {s['llama_cpp']}*", "",
+        (f"*Generated: {s['generated_at']} | host: {s['host']} | "
+         f"mlx {s['mlx_version']} | mlx-lm {s['mlx_lm_version']} | {s['llama_cpp']}*"), "",
         "| model | variant | status | src GiB | out GiB | RSS GiB | conv s | verify | load+gen | llamacpp |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
@@ -479,10 +483,10 @@ def _to_markdown(s: dict) -> str:
                          f"{'(hit)' if c.get('expected_hit') else ''} "
                          f"{c.get('error', '')}")
     lines += ["", "## Notes", "",
-              "- MLX generation is chat-template based (temp 0, max 160 tokens); "
-              "`expected_hit` records whether the reference answer appears.",
-              "- llama.cpp raw completions are untemplate raw continuations; "
-              "small wording differences vs MLX are expected after requantization.",
+              ("- MLX generation is chat-template based (temp 0, max 160 tokens); "
+               "`expected_hit` records whether the reference answer appears."),
+              ("- llama.cpp raw completions are untemplate raw continuations; "
+               "small wording differences vs MLX are expected after requantization."),
               "- Thinking models may spend tokens on reasoning before answering.",
               ]
     return "\n".join(lines) + "\n"

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from typing import Any, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 from .config.schema import ArchConfig, InputSlot, OpStep, Rule, SliceSpec
 from .constants import SUPPORTED_BITS
@@ -104,7 +105,7 @@ class DimResolver:
                 name, _, axis = body.rpartition(".")
                 try:
                     info = self._source.info(name)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — boundary: any source error becomes a plan error
                     raise PlanError(f"{where}: {exc}") from None
                 if not name or not axis.lstrip("-").isdigit():
                     raise PlanError(f"{where}: tshape spec must be 'tshape:<tensor>.<axis>'")
@@ -128,7 +129,7 @@ class DimResolver:
             if len(spec) == 1 and next(iter(spec)) in _ARITH:
                 (op, operands), = spec.items()
                 values = [self.resolve(o, where, dims_so_far) for o in operands]
-                if not all(isinstance(v, (int, float)) or isinstance(v, bool) for v in values):
+                if not all(isinstance(v, (int, float, bool)) for v in values):
                     raise PlanError(f"{where}: arithmetic over non-numeric values: {values}")
                 return _FN[op](values)
             # plain nested mapping: resolve every value
@@ -339,7 +340,7 @@ def _validate_pipeline_shapes(
             out = tuple(int(d) for d in spec.infer_shape(shapes, order, dict(step.args), ctx))
         except PlanError:
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — operator-plugin boundary: any failure becomes a plan error
             raise PlanError(f"{w}: {exc}") from None
         if not out or any(d <= 0 for d in out):
             raise PlanError(f"{w}: produces an empty output shape {list(out)}")
@@ -523,12 +524,12 @@ def plan_conversion(
                 )
             if rule.quantize and rule.bits is not None and rule.bits not in SUPPORTED_BITS:
                 raise PlanError(f"{where}: unsupported per-rule bits {rule.bits}")
-            if rule.quantize and rule.group_size is not None:
-                if final_shape[-1] % rule.group_size != 0:
-                    raise PlanError(
-                        f"{where}: quantized output last dim {final_shape[-1]} is "
-                        f"not divisible by the rule's group_size {rule.group_size}"
-                    )
+            if (rule.quantize and rule.group_size is not None
+                    and final_shape[-1] % rule.group_size != 0):
+                raise PlanError(
+                    f"{where}: quantized output last dim {final_shape[-1]} is "
+                    f"not divisible by the rule's group_size {rule.group_size}"
+                )
             job = PlannedJob(
                 dest=dest,
                 rule=rule,

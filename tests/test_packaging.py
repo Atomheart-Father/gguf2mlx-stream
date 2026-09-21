@@ -86,7 +86,7 @@ def test_wheel_contains_builtin_configs_verbatim(tmp_path):
     r = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
          "--wheel-dir", str(wheel_dir), str(ROOT)],
-        capture_output=True, text=True,
+        capture_output=True, text=True, check=False,
     )
     assert r.returncode == 0, r.stderr[-2000:]
     wheel = next(wheel_dir.glob("gguf2mlx_stream-*.whl"))
@@ -114,8 +114,9 @@ def test_wheel_contains_builtin_configs_verbatim(tmp_path):
 
 def test_convert_without_arch_config_autodetects(tmp_path):
     sys.path.insert(0, str(Path(__file__).parent))
-    from conftest import write_minimal_tokenizer  # noqa: E402
-    from test_pipeline_synthetic import build_fixture_gguf  # noqa: E402
+    from conftest import write_minimal_tokenizer
+    from test_pipeline_synthetic import build_fixture_gguf
+
     from gguf2mlx_stream.cli import main as cli_main
 
     gguf_path, _, _, _ = build_fixture_gguf(tmp_path)  # arch "qwen35"

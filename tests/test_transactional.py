@@ -17,13 +17,13 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import write_gguf, write_minimal_tokenizer  # noqa: E402
+from conftest import write_gguf, write_minimal_tokenizer
 
-from gguf2mlx_stream.config.schema import load_arch_config  # noqa: E402
-from gguf2mlx_stream.errors import ConversionError, PlanError  # noqa: E402
-from gguf2mlx_stream.planner import plan_conversion  # noqa: E402
-from gguf2mlx_stream.runner import ConversionRunner, QuantSettings  # noqa: E402
-from gguf2mlx_stream.source.gguf import GGUFSource  # noqa: E402
+from gguf2mlx_stream.config.schema import load_arch_config
+from gguf2mlx_stream.errors import ConversionError, PlanError
+from gguf2mlx_stream.planner import plan_conversion
+from gguf2mlx_stream.runner import ConversionRunner, QuantSettings
+from gguf2mlx_stream.source.gguf import GGUFSource
 
 ROOT = Path(__file__).resolve().parent.parent
 QWEN35_YAML = ROOT / "configs" / "qwen3_5.yaml"

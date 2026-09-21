@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 from gguf import GGMLQuantizationType, GGUFReader, dequantize
@@ -103,7 +104,7 @@ def _decode_array(field) -> Any:
             ]
         if elem.startswith(("UINT", "INT", "FLOAT", "BOOL")):
             return [v.item() if hasattr(v, "item") else v for v in field.data]
-    except Exception:
+    except Exception:  # noqa: BLE001 — metadata display must never fail the conversion
         return f"<array:{elem}>"
     return f"<array:{elem}>"
 
@@ -153,7 +154,7 @@ class GGUFSource:
                         meta[key] = _decode_array(field)
                     else:
                         meta[key] = _scalar(field)
-                except Exception:
+                except Exception:  # noqa: BLE001 — one unreadable metadata field must not fail the load
                     meta[key] = "<unreadable>"
             self._metadata = meta
         return self._metadata

@@ -26,7 +26,7 @@ Q4_K (144 B/block): d f16, dmin f16, scales uint8[12], qs[128]
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 import numpy as np
 import pytest

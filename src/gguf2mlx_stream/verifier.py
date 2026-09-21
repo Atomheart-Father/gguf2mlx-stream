@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 from safetensors import safe_open
@@ -124,7 +125,9 @@ def _read_output_quantization(out_dir: str) -> dict[str, Any]:
 
 def _saved(out_dir: str, weight_map: Mapping[str, str], key: str) -> np.ndarray:
     with safe_open(os.path.join(out_dir, weight_map[key]), framework="numpy") as f:
-        if key not in f.keys():
+        # safe_open.keys() returns a plain list and the handle itself is not
+        # iterable/containable, so the .keys() form is intentional here
+        if key not in f.keys():  # noqa: SIM118
             raise VerifyError(f"key {key!r} missing from {weight_map[key]}")
         return f.get_tensor(key)
 
@@ -140,7 +143,7 @@ def _job_quant_params(
     also the format mlx-lm's loader consumes.
     """
     module_key = (
-        job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+        job.dest.removesuffix(".weight")
     )
     override = quant_cfg.get(module_key)
     if isinstance(override, dict):
@@ -211,7 +214,7 @@ def verify_conversion(
     different value is a hard failure.
     """
     report = VerifyReport()
-    weight_map, meta = _load_output(out_dir)
+    weight_map, _meta = _load_output(out_dir)
     out_keys = set(weight_map)
 
     # bidirectional index <-> shard consistency (and unindexed shard files)
@@ -222,7 +225,7 @@ def verify_conversion(
     for job in plan.jobs:
         planned.add(job.dest)
         if job.quantize:
-            base = job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+            base = job.dest.removesuffix(".weight")
             planned.add(base + ".scales")
             planned.add(base + ".biases")
     extra = sorted(out_keys - planned)
@@ -255,7 +258,7 @@ def verify_conversion(
         if job.dest not in out_keys:
             continue
         if job.quantize:
-            base = job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+            base = job.dest.removesuffix(".weight")
             packed = _saved(out_dir, weight_map, job.dest)
             scales = _saved(out_dir, weight_map, base + ".scales")
             biases = _saved(out_dir, weight_map, base + ".biases")
@@ -316,7 +319,7 @@ def verify_conversion(
                 got = np.asarray(
                     dequantize_weights(packed, scales, biases, job_bits, job_group)
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — boundary: any dequant failure is a recorded verification failure
                 report.failures.append(
                     f"{job.dest}: recorded quantization parameters (bits={job_bits}, "
                     f"group_size={job_group}) do not match the saved weights: {exc}"
@@ -379,7 +382,7 @@ def verify_conversion(
 def load_test(out_dir: str, prompt: str = "Hello", max_tokens: int = 8) -> str:
     """Optional mlx-lm load + short generation smoke test."""
     try:
-        from mlx_lm import load, generate
+        from mlx_lm import generate, load
         from mlx_lm.sample_utils import make_sampler
     except ImportError as exc:  # pragma: no cover
         raise VerifyError(

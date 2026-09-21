@@ -15,13 +15,13 @@ import pytest
 from safetensors.numpy import load_file
 
 sys.path.insert(0, str(Path(__file__).parent))
-import oracle_impl as oracle  # noqa: E402
-from conftest import write_gguf, write_minimal_tokenizer  # noqa: E402
+import oracle_impl as oracle
+from conftest import write_gguf, write_minimal_tokenizer
 
-from gguf2mlx_stream.config.schema import load_arch_config  # noqa: E402
-from gguf2mlx_stream.planner import plan_conversion  # noqa: E402
-from gguf2mlx_stream.runner import ConversionRunner, QuantSettings  # noqa: E402
-from gguf2mlx_stream.source.gguf import GGUFSource  # noqa: E402
+from gguf2mlx_stream.config.schema import load_arch_config
+from gguf2mlx_stream.planner import plan_conversion
+from gguf2mlx_stream.runner import ConversionRunner, QuantSettings
+from gguf2mlx_stream.source.gguf import GGUFSource
 
 ROOT = Path(__file__).resolve().parent.parent
 QWEN35_YAML = ROOT / "configs" / "qwen3_5.yaml"
@@ -177,7 +177,7 @@ def test_a_log_oracle_matches_documented_formula():
     """A_log = log(-unperm(ssm_a)); check against hand-computed values."""
     # natural A values chosen for clean logs
     natural_a = np.array([2.0, 4.0, 0.5, 1.0], np.float32)  # 4 v-heads
-    a_log_expected = np.log(-(-natural_a)).astype(np.float32)  # log(A)
+    a_log_expected = np.log(natural_a).astype(np.float32)  # A_log = log(A) = log(-ssm_a)
     # gguf ssm_a = -exp(A_log) in gguf head order (ratio 2: [h0, h2, h1, h3])
     a_log = np.log(natural_a)
     ssm_a = -np.exp(a_log)
@@ -278,7 +278,7 @@ def test_mtp_removal_oracle_key_set(tmp_path):
     planned = set(plan.dest_map)
     for job in plan.jobs:
         if job.quantize:
-            base = job.dest[:-len(".weight")] if job.dest.endswith(".weight") else job.dest
+            base = job.dest.removesuffix(".weight")
             planned |= {base + ".scales", base + ".biases"}
 
     missing = expected - planned

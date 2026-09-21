@@ -53,7 +53,7 @@ def test_letter_only_requires_letter_and_no_extra(tmp_path):
 
 
 def test_duplicate_id_rejected(tmp_path):
-    src, cand = _two_sides(tmp_path, mutate_cand=lambda r: r.append(dict(r[0])))
+    _src, cand = _two_sides(tmp_path, mutate_cand=lambda r: r.append(dict(r[0])))
     with pytest.raises(SystemExit, match="duplicate"):
         sa.load_records(cand, "cand")
 

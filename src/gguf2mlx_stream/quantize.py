@@ -19,8 +19,8 @@ quantizing the whole array.
 
 from __future__ import annotations
 
-import numpy as np
 import mlx.core as mx
+import numpy as np
 
 from .constants import SUPPORTED_BITS, SUPPORTED_GROUP_SIZES
 from .errors import ConversionError

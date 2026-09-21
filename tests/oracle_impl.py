@@ -9,9 +9,7 @@ Only numpy is used here. No gguf2mlx_stream imports.
 
 from __future__ import annotations
 
-
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # grouped v-head storage permutation
@@ -138,7 +136,7 @@ def oracle_expected_layer_keys(n_layers: int, full_attn_layers: set[int],
 
     def quant_triple(base: str) -> set[str]:
         if quantized_keys:
-            stem = base[: -len(".weight")] if base.endswith(".weight") else base
+            stem = base.removesuffix(".weight")
             return {key(base), key(stem + ".scales"), key(stem + ".biases")}
         return {key(base)}
 

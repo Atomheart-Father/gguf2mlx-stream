@@ -23,13 +23,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import write_gguf
 from safetensors import safe_open
 
 from gguf2mlx_stream.config.schema import load_arch_config
 from gguf2mlx_stream.planner import plan_conversion
 from gguf2mlx_stream.source.gguf import GGUFSource
-
-from conftest import write_gguf
 
 ROOT = Path(__file__).resolve().parent.parent
 QWEN35_YAML = ROOT / "configs" / "qwen3_5.yaml"
@@ -142,7 +141,7 @@ def _planned_key_set(plan) -> set[str]:
     for job in plan.jobs:
         keys.add(job.dest)
         if job.quantize:
-            base = job.dest[: -len(".weight")] if job.dest.endswith(".weight") else job.dest
+            base = job.dest.removesuffix(".weight")
             keys |= {base + ".scales", base + ".biases"}
     return keys
 
@@ -172,7 +171,7 @@ def test_skeleton_key_set_matches_reference_6bit(skeleton_plan):
 
 @pytest.mark.skipif(not REF_6BIT.is_dir(), reason=f"reference not present: {REF_6BIT}")
 def test_skeleton_layer_kinds_match_reference(skeleton_plan):
-    plan, _ = skeleton_plan
+    _plan, _ = skeleton_plan
     index = json.loads((REF_6BIT / "model.safetensors.index.json").read_text())
     wm = set(index["weight_map"])
     prefix = "language_model.model.layers."
@@ -205,16 +204,16 @@ def _check_reference_structure(ref_dir: Path, report: list):
 
     total = 0
     n_quant = n_f32 = 0
-    with safe_open(str(ref_dir / sorted(set(wm.values()))[0]), framework="numpy") as f:
-        pass  # safe_open per file below
     for fname in sorted(set(wm.values())):
         with safe_open(str(ref_dir / fname), framework="numpy") as f:
-            for key in f.keys():
+            # safe_open.keys() returns a plain list; the handle itself is not
+            # iterable, so iterating .keys() is intentional here
+            for key in f.keys():  # noqa: SIM118
                 assert wm[key] == fname, f"index mismatch for {key}"
                 arr = f.get_tensor(key)
                 total += arr.nbytes
-                base = key[: -len(".weight")] if key.endswith(".weight") else key
-                if key.endswith(".scales") or key.endswith(".biases"):
+                base = key.removesuffix(".weight")
+                if key.endswith((".scales", ".biases")):
                     assert arr.dtype == np.float16
                     n_f32 += 1
                 elif key.endswith(".weight") and f"{base}.scales" in wm:

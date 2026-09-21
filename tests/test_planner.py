@@ -2,13 +2,12 @@
 
 import numpy as np
 import pytest
+from conftest import write_gguf
 
 from gguf2mlx_stream.config.schema import arch_config_from_dict
 from gguf2mlx_stream.errors import PlanError
 from gguf2mlx_stream.planner import plan_conversion
 from gguf2mlx_stream.source.gguf import GGUFSource
-
-from conftest import write_gguf
 
 
 def base_config(**over):

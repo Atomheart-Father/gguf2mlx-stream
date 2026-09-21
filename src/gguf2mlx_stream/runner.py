@@ -23,16 +23,17 @@ import resource
 import shutil
 import time
 import uuid
-from typing import Any, Callable, Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
-import numpy as np
 import mlx.core as mx
+import numpy as np
 
 from .errors import ConversionError
-from .planner import ConversionPlan, PlannedJob
-from .quantize import quantize_weights
 from .ops import all_ops
 from .ops.base import OpContext
+from .planner import ConversionPlan, PlannedJob
+from .quantize import quantize_weights
 from .source.gguf import GGUFSource
 from .writer import (
     ShardedSafetensorsWriter,
@@ -332,7 +333,7 @@ class ConversionRunner:
     def _emit_config(
         self, out_dir: str, writer: ShardedSafetensorsWriter, index: Mapping[str, Any]
     ) -> None:
-        from .planner import DimResolver, _ARITH
+        from .planner import _ARITH, DimResolver
 
         out = self.plan.config.output
         if not out.model_type:
@@ -391,9 +392,7 @@ class ConversionRunner:
                 bits, group = self._effective_quant(job)
                 if (bits, group) != (self.quant.bits, self.quant.group_size):
                     module_key = (
-                        job.dest[: -len(".weight")]
-                        if job.dest.endswith(".weight")
-                        else job.dest
+                        job.dest.removesuffix(".weight")
                     )
                     quant[module_key] = {"bits": bits, "group_size": group}
         cfg = build_output_config(

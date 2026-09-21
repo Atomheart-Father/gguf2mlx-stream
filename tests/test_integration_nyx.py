@@ -7,7 +7,7 @@ again, point the env vars at it and the full bounded-memory regression runs:
     GGUF2MLX_TEST_Q6_GGUF=/path/Nyx-RP-9B-Instruct-2608-v1.Q6_K.gguf \
     GGUF2MLX_TEST_Q4_GGUF=/path/Nyx-RP-9B-Instruct-2608-v1.Q4_K_M.gguf \
     GGUF2MLX_TEST_SOURCE_DIR=/path/dir-with-config-and-tokenizer \
-    GGUF2MLX_TEST_LOAD=1 \          # optional mlx_lm.load + generation
+    GGUF2MLX_TEST_LOAD=1 \\          # optional mlx_lm.load + generation
     pytest tests/test_integration_nyx.py -s
 
 Source GGUFs are only READ; outputs go to a fresh temp directory. Nothing

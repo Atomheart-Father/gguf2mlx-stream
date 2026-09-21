@@ -2,11 +2,6 @@
 
 import numpy as np
 import pytest
-from gguf.constants import GGMLQuantizationType
-
-from gguf2mlx_stream.errors import SourceError
-from gguf2mlx_stream.source.gguf import GGUFSource
-
 from conftest import (
     QK_K,
     build_q4_block,
@@ -15,6 +10,10 @@ from conftest import (
     q6_expected,
     write_gguf,
 )
+from gguf.constants import GGMLQuantizationType
+
+from gguf2mlx_stream.errors import SourceError
+from gguf2mlx_stream.source.gguf import GGUFSource
 
 
 def _make_q6_matrix(n_rows: int) -> tuple[bytes, np.ndarray, tuple[int, ...], float]:

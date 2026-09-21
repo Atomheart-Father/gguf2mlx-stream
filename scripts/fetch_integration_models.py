@@ -78,7 +78,7 @@ def main() -> int:
                     local_dir=tdir,
                 )
                 got.append(fn)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — best-effort tokenizer fetch: skip and continue
                 print(f"[tok] {model}/{fn}: SKIP ({type(exc).__name__}: {str(exc)[:80]})")
         log.setdefault(model, {})["tokenizer"] = {
             "repo": entry["tokenizer_repo"],

@@ -10,7 +10,7 @@ exist in this registry — YAML can never import or execute arbitrary code.
 from __future__ import annotations
 
 import dataclasses
-from typing import Callable, Dict
+from collections.abc import Callable
 
 from ..errors import ConfigError
 
@@ -49,7 +49,7 @@ class OpSpec:
         return self.kind == "elementwise"
 
 
-_REGISTRY: Dict[str, OpSpec] = {}
+_REGISTRY: dict[str, OpSpec] = {}
 
 
 def register_op(
@@ -87,5 +87,5 @@ def get_op(name: str) -> OpSpec:
         ) from None
 
 
-def all_ops() -> Dict[str, OpSpec]:
+def all_ops() -> dict[str, OpSpec]:
     return dict(_REGISTRY)

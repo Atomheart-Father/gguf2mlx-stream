@@ -22,11 +22,10 @@ import numpy as np
 from safetensors.numpy import load_file, save_file
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import write_minimal_tokenizer  # noqa: E402
+from conftest import write_minimal_tokenizer
+from test_pipeline_synthetic import build_fixture_gguf
 
-from test_pipeline_synthetic import build_fixture_gguf  # noqa: E402
-
-from gguf2mlx_stream.cli import main as cli_main  # noqa: E402
+from gguf2mlx_stream.cli import main as cli_main
 
 ROOT = Path(__file__).resolve().parent.parent
 QWEN35_YAML = str(ROOT / "configs" / "qwen3_5.yaml")
@@ -85,9 +84,9 @@ def test_tampered_later_layer_tensor_is_caught(tmp_path):
     assert rc == 1, "tampered tensor must fail verify"
     # the report names the victim, not just any failure
     # (rc==1 path prints FAIL lines to stderr; re-run via the API for text)
+    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.planner import plan_conversion
     from gguf2mlx_stream.source.gguf import GGUFSource
-    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.verifier import verify_conversion
     cfg, _ = resolve_arch_config(QWEN35_YAML)
     source = GGUFSource(str(gguf_path))
@@ -107,9 +106,9 @@ def test_extra_key_inside_shard_is_rejected(tmp_path):
     rc = cli_main(["verify", str(gguf_path), str(out_dir),
                    "--arch-config", QWEN35_YAML, "--max-details", "0"])
     assert rc == 1
+    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.planner import plan_conversion
     from gguf2mlx_stream.source.gguf import GGUFSource
-    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.verifier import verify_conversion
     cfg, _ = resolve_arch_config(QWEN35_YAML)
     source = GGUFSource(str(gguf_path))
@@ -124,9 +123,9 @@ def test_unindexed_shard_file_is_rejected(tmp_path):
     save_file({"ghost.weight": np.zeros((2, 2), np.float32)}, str(rogue))
     _ = src_shard  # referenced only to keep the fixture explicit
 
+    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.planner import plan_conversion
     from gguf2mlx_stream.source.gguf import GGUFSource
-    from gguf2mlx_stream.builtin import resolve_arch_config
     from gguf2mlx_stream.verifier import verify_conversion
     cfg, _ = resolve_arch_config(QWEN35_YAML)
     source = GGUFSource(str(gguf_path))

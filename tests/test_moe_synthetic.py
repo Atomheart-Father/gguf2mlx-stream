@@ -21,6 +21,7 @@ import json
 
 import numpy as np
 import pytest
+from conftest import write_gguf, write_minimal_tokenizer
 
 from gguf2mlx_stream.config.schema import arch_config_from_dict
 from gguf2mlx_stream.planner import plan_conversion
@@ -28,8 +29,6 @@ from gguf2mlx_stream.quantize import dequantize_weights
 from gguf2mlx_stream.runner import ConversionRunner, QuantSettings
 from gguf2mlx_stream.source.gguf import GGUFSource
 from gguf2mlx_stream.verifier import verify_conversion
-
-from conftest import write_gguf, write_minimal_tokenizer
 
 N_EXPERTS, EXPERT_TOKENS, HIDDEN = 2, 4, 64  # expert tensor (2, 4, 64)
 VOCAB, INTER = 8, 32
@@ -173,7 +172,7 @@ def _run_conversion(tmp_path, moe_gguf, chunk_elements):
 
 
 def test_moe_synthetic_pipeline(tmp_path, moe_gguf):
-    out, stats, full_reads, row_reads, expert, router, shared_gate = _run_conversion(
+    out, stats, full_reads, row_reads, expert, router, _shared_gate = _run_conversion(
         tmp_path, moe_gguf, chunk_elements=1  # forces 8 single-row chunks
     )
 

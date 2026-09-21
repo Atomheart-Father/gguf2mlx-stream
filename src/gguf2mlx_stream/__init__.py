@@ -25,11 +25,11 @@ from .errors import (
 __version__ = "0.1.0a1"
 
 __all__ = [
-    "__version__",
     "ConfigError",
     "ConversionError",
     "Gguf2MlxError",
     "PlanError",
     "SourceError",
     "VerifyError",
+    "__version__",
 ]
