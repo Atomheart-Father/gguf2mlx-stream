@@ -38,8 +38,8 @@ def anomalies(rec: dict) -> list[str]:
 
 
 def score_side(records_path: Path) -> dict:
-    recs = [json.loads(l) for l in records_path.read_text().splitlines()
-            if l.strip()]
+    recs = [json.loads(line) for line in records_path.read_text().splitlines()
+            if line.strip()]
     n = len(recs)
     if not n:
         raise SystemExit(f"empty records: {records_path}")

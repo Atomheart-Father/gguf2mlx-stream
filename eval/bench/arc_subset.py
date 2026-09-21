@@ -170,8 +170,8 @@ def verify_saved(out_jsonl: Path, expected_sha: str) -> None:
     The saved records carry the rendered ``prompt`` for the runners; the
     committed hash covers the dataset items only.
     """
-    items = [{k: v for k, v in json.loads(l).items() if k != "prompt"}
-             for l in out_jsonl.read_text().splitlines() if l.strip()]
+    items = [{k: v for k, v in json.loads(line).items() if k != "prompt"}
+             for line in out_jsonl.read_text().splitlines() if line.strip()]
     got = subset_sha256(items)
     if got != expected_sha:
         raise SystemExit(

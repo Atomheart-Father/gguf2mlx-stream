@@ -46,7 +46,7 @@ def run_mlx(model_path: Path, subset_path: Path, out_path: Path,
     from mlx_lm import load, generate
     from mlx_lm.sample_utils import make_sampler
 
-    items = [json.loads(l) for l in subset_path.read_text().splitlines() if l.strip()]
+    items = [json.loads(line) for line in subset_path.read_text().splitlines() if line.strip()]
     model, tokenizer = load(str(model_path))
     sampler = make_sampler(temp=0.0)
     with out_path.open("w") as fh:
@@ -77,7 +77,7 @@ def run_llamacpp(gguf: Path, subset_path: Path, out_path: Path,
                  limit: int | None) -> None:
     import hashlib
 
-    items = [json.loads(l) for l in subset_path.read_text().splitlines() if l.strip()]
+    items = [json.loads(line) for line in subset_path.read_text().splitlines() if line.strip()]
     with out_path.open("w") as fh:
         for item in items[:limit]:
             cmd = [bin_name, "-m", str(gguf), "--no-display-prompt",
