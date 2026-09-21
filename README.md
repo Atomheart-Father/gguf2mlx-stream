@@ -92,6 +92,21 @@ committed). Peak RSS includes the mmap'd source page
 cache, which the OS can evict. See docs/TESTING.md for how the matrix is
 reproduced.
 
+Additional large-model regression (`qwen35moe`, run outside the pinned
+matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention
++ 256-expert MoE), source GGUF i1-IQ3_M → MLX 4-bit:
+
+| source GiB | output GiB (shards) | peak RSS GiB | convert s | verify |
+|---|---|---|---|---|
+| 14.72 | 18.17 (5) | 16.48 | 428 | ALL OK (733 numeric / 733 shape / 1757 finite) |
+
+Output loaded with `mlx_lm.load()`, produced coherent temp-0 chat
+generations through the tokenizer chat template, and shows semantic
+agreement with `llama-completion` output from the source GGUF on spot
+prompts. The same run exercised N-D (3-D expert) quantization with
+chunk-safe streaming and config-declared per-rule 8-bit overrides for the
+MoE router and shared-expert gate.
+
 ## Scope boundaries
 
 * **One source GGUF per conversion.** Tokenizer files and reference-config
@@ -106,7 +121,7 @@ reproduced.
 ## Quickstart
 
 ```bash
-pip install gguf2mlx-stream            # wheel: the four official configs are built in
+pip install gguf2mlx-stream            # wheel: the five official configs are built in
 pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
 
 # list the built-in architecture configs shipped with the package

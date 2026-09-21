@@ -7,7 +7,7 @@
     gguf2mlx-stream convert        model.gguf --arch-config qwen3_5 --output ./out [options]
     gguf2mlx-stream verify         model.gguf ./out --arch-config qwen3_5 [options]
 
-``--arch-config`` accepts a built-in config name (the four official configs
+``--arch-config`` accepts a built-in config name (the five official configs
 ship inside the wheel) or a YAML path; when omitted, the config is
 auto-detected from the GGUF's ``general.architecture`` if exactly one
 built-in config accepts it. All commands are non-interactive and scriptable.

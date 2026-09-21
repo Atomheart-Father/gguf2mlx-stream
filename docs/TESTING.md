@@ -25,7 +25,7 @@ ruff check src tests scripts
 | `test_quantize_writer.py` | 4/6-bit quantize→dequantize round-trips, packing shapes, bad group rejection; shard splitting, `-of-N` renaming, index totals |
 | `test_verifier.py` | verifier credibility: tampered later-layer tensor of an already-seen rule is caught (full numeric coverage by default; sampling is `--sampled` opt-in), extra key inside a shard rejected, unindexed shard file rejected, `bits`/`group_size`/`mode` read from config.json with CLI-conflict failures, sampled opt-in still passes clean outputs |
 | `test_transactional.py` | failed conversions leave no partial output and no staging leftovers; existing outputs need `--overwrite`; missing required config fields fail loudly; **tokenizer output contract**: missing tokenizer files / missing `tokenizer_config.json` / invalid `tokenizer.json` each fail the transaction and preserve the previous output |
-| `test_packaging.py` | built-in config discovery + loading, `--arch-config` name/path/auto-detect resolution, `list-configs` CLI, wheel content: the four official configs byte-identical to the repo-root `configs/`, wheel metadata version == runtime `__version__`, auto-detected conversion without `--arch-config` |
+| `test_packaging.py` | built-in config discovery + loading, `--arch-config` name/path/auto-detect resolution, `list-configs` CLI, wheel content: the five official configs byte-identical to the repo-root `configs/`, wheel metadata version == runtime `__version__`, auto-detected conversion without `--arch-config` |
 
 ## B. Synthetic end-to-end pipeline (`test_pipeline_synthetic.py`)
 
@@ -167,6 +167,15 @@ inspect → validate-config → dry-run → convert → structural
 Latest published run: 8/8 variants PASS (4 families × Q4_K_M + Q6_K),
 all outputs discovered by the isolated oMLX server.
 
+Large-model one-off regression (`qwen35moe`, same pipeline stages, run
+manually outside the pinned matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive
+i1-IQ3_M → MLX 4-bit — 733 planned jobs, 20 dropped MTP tensors, 5 shards
+/ 18.17 GiB output, peak RSS 16.48 GiB, verify ALL OK (733 numeric / 733
+shape / 1757 finite), `mlx_lm.load()` + coherent temp-0 generation,
+llama.cpp source-side semantic agreement. This is the reference run for
+the N-D (3-D expert) quantization and per-rule bits/group_size override
+paths.
+
 ## H. Clean-install acceptance (release gate)
 
 After building the wheel:
@@ -174,7 +183,7 @@ After building the wheel:
 ```bash
 python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
 python -m venv /tmp/fresh-venv && /tmp/fresh-venv/bin/pip install dist/*.whl
-/tmp/fresh-venv/bin/gguf2mlx-stream list-configs          # 4 built-ins, no clone
+/tmp/fresh-venv/bin/gguf2mlx-stream list-configs          # 5 built-ins, no clone
 /tmp/fresh-venv/bin/gguf2mlx-stream validate-config llama  # builtin by name
 /tmp/fresh-venv/bin/gguf2mlx-stream convert tiny.gguf --output out \
     --tokenizer-source tokenizer/ --bits 4 --quiet         # --arch-config omitted:

@@ -2,7 +2,7 @@
 
 Guarantees under test (release P1):
 
-* the four official architecture configs are discoverable as built-ins and
+* the five official architecture configs are discoverable as built-ins and
   load/validate without a source checkout;
 * the built wheel contains them verbatim under ``gguf2mlx_stream/configs/``
   (byte-identical to the authoritative repository-root ``configs/``);
