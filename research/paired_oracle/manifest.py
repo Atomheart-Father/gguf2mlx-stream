@@ -41,6 +41,26 @@ KNOWN_ASSETS: dict[str, dict[str, str]] = {
         "revision": "078b637ae52dae5773e3159de9c1d691ed771837",
         "kind": "gguf",
     },
+    "gguf/ggml-org-qwen35-0.8b-q4_0": {
+        "repo": "ggml-org/Qwen3.5-0.8B-GGUF",
+        "revision": "8fea620810c4afa23dd6443f999a48574c1611a3",
+        "kind": "gguf",
+    },
+    "gguf/unsloth-llama32-1b-bf16": {
+        "repo": "unsloth/Llama-3.2-1B-Instruct-GGUF",
+        "revision": "b69aef112e9f895e6f98d7ae0949f72ff09aa401",
+        "kind": "gguf",
+    },
+    "mlx/llama32-1b-instruct-bf16": {
+        "repo": "mlx-community/Llama-3.2-1B-Instruct-bf16",
+        "revision": "863c846a9ac6fad4e49e1743d52984dff262e953",
+        "kind": "mlx",
+    },
+    "mlx/llama32-1b-instruct-4bit": {
+        "repo": "mlx-community/Llama-3.2-1B-Instruct-4bit",
+        "revision": "08231374eeacb049a0eade7922910865b8fce912",
+        "kind": "mlx",
+    },
     "mlx/qwen35-0.8b-instruct-bf16": {
         "repo": "mlx-community/Qwen3.5-0.8B-MLX-bf16",
         "revision": "7aef04e9adfd926ce0da9da376fe9610c8818a58",
