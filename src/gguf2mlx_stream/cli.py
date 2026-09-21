@@ -26,7 +26,7 @@ from .builtin import builtin_config_names, load_builtin_config, resolve_arch_con
 from .errors import Gguf2MlxError
 from .ops import all_ops
 from .planner import plan_conversion
-from .quantize import SUPPORTED_BITS
+from .constants import SUPPORTED_BITS
 from .runner import ConversionRunner, QuantSettings
 from .source.gguf import GGUFSource
 from .verifier import load_test, verify_conversion

@@ -401,18 +401,50 @@ def test_incompatible_concat_fails_at_plan_time(tmp_path):
         plan_conversion(arch_config_from_dict(raw), src)
 
 
-def test_quantized_rule_producing_non_2d_fails_at_plan_time(tmp_path):
+def test_quantized_rule_producing_rank1_fails_at_plan_time(tmp_path):
     src = make_source(tmp_path)
     raw = base_config(
         unmatched_tensors="warn",
         rules=[{
             "match": "tok\\.weight",
             "dest": "t.weight",
-            "steps": [{"op": "reshape", "args": {"shape": {"list": [2, 2, 2, 4]}}}],
+            "steps": [{"op": "reshape", "args": {"shape": {"list": [16]}}}],
         }],
         coverage={},
     )
-    with pytest.raises(PlanError, match="2-D"):
+    with pytest.raises(PlanError, match="rank >= 2"):
+        plan_conversion(arch_config_from_dict(raw), src)
+
+
+def test_quantized_rule_allows_nd_output(tmp_path):
+    """N-D quantization semantics: 3-D output is quantized along its last axis."""
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "steps": [{"op": "reshape", "args": {"shape": {"list": [2, 2, 4]}}}],
+        }],
+        coverage={},
+    )
+    plan = plan_conversion(arch_config_from_dict(raw), src)
+    (job,) = plan.jobs
+    assert job.quantize and job.out_shape == (2, 2, 4)
+
+
+def test_quantized_rule_group_override_validated_at_plan_time(tmp_path):
+    src = make_source(tmp_path)
+    raw = base_config(
+        unmatched_tensors="warn",
+        rules=[{
+            "match": "tok\\.weight",
+            "dest": "t.weight",
+            "group_size": 64,
+        }],
+        coverage={},
+    )
+    with pytest.raises(PlanError, match="group_size"):
         plan_conversion(arch_config_from_dict(raw), src)
 
 

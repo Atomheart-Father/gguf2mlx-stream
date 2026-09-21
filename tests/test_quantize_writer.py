@@ -38,6 +38,34 @@ def test_quantize_rejects_bad_grouping():
         quantize_weights(w, bits=4, group_size=64)
     with pytest.raises(ConversionError):
         quantize_weights(np.zeros((8,), np.float32), bits=4, group_size=64)
+    with pytest.raises(ConversionError):
+        quantize_weights(np.zeros((8, 64), np.float32), bits=4, group_size=48)
+
+
+def test_quantize_nd_expert_tensor_leading_dims_preserved():
+    """3-D expert tensor: last axis quantized in groups, leading axes kept."""
+    rng = np.random.default_rng(7)
+    w = (rng.standard_normal((3, 8, 128)) * 0.05).astype(np.float32)
+    packed, scales, biases = quantize_weights(w, bits=4, group_size=64)
+    assert packed.shape == (3, 8, 16)  # 2 groups per 128-elem last axis
+    assert scales.shape == (3, 8, 2) and biases.shape == (3, 8, 2)
+    d = np.asarray(dequantize_weights(packed, scales, biases, bits=4, group_size=64))
+    assert d.shape == w.shape
+    assert np.abs(d - w).max() < 0.05
+
+
+def test_quantize_chunked_equals_whole():
+    """Quantization is per-leading-slice: chunk + concat == whole-tensor."""
+    rng = np.random.default_rng(11)
+    w = (rng.standard_normal((10, 64)) * 0.05).astype(np.float32)
+    packed, scales, biases = quantize_weights(w, bits=4, group_size=64)
+    parts = [quantize_weights(w[lo:lo + 3], bits=4, group_size=64) for lo in range(0, 10, 3)]
+    packed_c = np.concatenate([p for p, _, _ in parts])
+    scales_c = np.concatenate([s for _, s, _ in parts])
+    biases_c = np.concatenate([b for _, _, b in parts])
+    assert np.array_equal(packed, packed_c)
+    assert np.array_equal(scales, scales_c)
+    assert np.array_equal(biases, biases_c)
 
 
 def test_shard_writer_splits_and_indexes(tmp_path):

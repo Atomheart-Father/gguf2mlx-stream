@@ -22,6 +22,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from ..constants import SUPPORTED_BITS, SUPPORTED_GROUP_SIZES
 from ..errors import ConfigError
 from ..ops import all_ops
 
@@ -128,6 +129,14 @@ class Rule:
     expect_shape: tuple[Any | None, ...] | None = None
     inputs: Mapping[str, InputSlot] | None = None
     steps: tuple[OpStep, ...] = ()
+    # Per-rule quantization overrides (config-level, not executor hardcoding).
+    # When set they replace the conversion-level bits/group_size for this
+    # rule's output tensor only (e.g. MoE routers and shared-expert gates at
+    # 8 bits while the body of the model quantizes at 4 bits). The output
+    # config.json records the override under the tensor's own key, which is
+    # the format mlx-lm's loader consumes.
+    bits: int | None = None
+    group_size: int | None = None
     # drop rules may instead declare an explicit half-open block-index range
     # [start, end): the rule's match pattern (which must contain the reserved
     # {i} placeholder) declares how block tensor names are built — {i} is
@@ -298,8 +307,23 @@ def _parse_steps(raw: Any, where: str, inputs: Mapping[str, InputSlot] | None) -
 
 _RULE_KEYS = (
     "name", "match", "dest", "drop", "optional", "quantize", "dtype",
-    "expect_shape", "inputs", "steps", "range",
+    "expect_shape", "inputs", "steps", "range", "bits", "group_size",
 )
+
+
+def _parse_rule_quant_overrides(raw: Any, where: str) -> tuple[int | None, int | None]:
+    bits = raw.get("bits")
+    group_size = raw.get("group_size")
+    if bits is not None and (isinstance(bits, bool) or bits not in SUPPORTED_BITS):
+        raise _err(where, f"bits must be one of {list(SUPPORTED_BITS)}, got {bits!r}")
+    if group_size is not None and (
+        isinstance(group_size, bool) or group_size not in SUPPORTED_GROUP_SIZES
+    ):
+        raise _err(
+            where,
+            f"group_size must be one of {list(SUPPORTED_GROUP_SIZES)}, got {group_size!r}",
+        )
+    return bits, group_size
 
 
 def _parse_rule(raw: Any, idx: int) -> Rule:
@@ -350,6 +374,13 @@ def _parse_rule(raw: Any, idx: int) -> Rule:
     name = raw.get("name")
     if name is not None and not isinstance(name, str):
         raise _err(where, "rule.name must be a string")
+    bits, group_size = _parse_rule_quant_overrides(raw, where)
+    if (bits is not None or group_size is not None) and not bool(raw.get("quantize", True)):
+        raise _err(
+            where,
+            "bits/group_size overrides are only valid on quantized rules "
+            "(remove 'quantize: false' or the override)",
+        )
     inputs = raw.get("inputs")
     inputs_p = _parse_inputs(inputs, f"{where}.inputs") if inputs else None
     steps = _parse_steps(raw.get("steps"), f"{where}.steps", inputs_p)
@@ -375,6 +406,8 @@ def _parse_rule(raw: Any, idx: int) -> Rule:
         expect_shape=expect_shape,
         inputs=inputs_p,
         steps=steps,
+        bits=bits,
+        group_size=group_size,
         block_range=block_range,
     )
 

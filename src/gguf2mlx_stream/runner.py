@@ -257,6 +257,12 @@ class ConversionRunner:
         )
         self.stats = stats
 
+    def _effective_quant(self, job: PlannedJob) -> tuple[int, int]:
+        """Per-job quantization parameters: rule override else conversion-level."""
+        bits = job.bits if job.bits is not None else self.quant.bits
+        group = job.group_size if job.group_size is not None else self.quant.group_size
+        return int(bits), int(group)
+
     def _convert_job(self, job: PlannedJob, writer: ShardedSafetensorsWriter) -> None:
         n_rows = job.source.n_rows
         inner = job.source.ne[0]
@@ -274,9 +280,8 @@ class ConversionRunner:
             raise ConversionError(f"{job.dest}: non-finite values after transform")
 
         if use_quant:
-            packed, scales, biases = quantize_weights(
-                result, self.quant.bits, self.quant.group_size
-            )
+            bits, group = self._effective_quant(job)
+            packed, scales, biases = quantize_weights(result, bits, group)
             writer.add_quantized(job.dest, packed, scales, biases)
         else:
             dtype = "float16" if (job.quantize and not self.quant.enabled) else job.dtype
@@ -286,7 +291,14 @@ class ConversionRunner:
     def _convert_chunked(
         self, job: PlannedJob, writer: ShardedSafetensorsWriter, chunk_rows: int
     ) -> None:
-        """Stream a huge quantization-only job in bounded row chunks."""
+        """Stream a huge quantization-only job in bounded row chunks.
+
+        Chunks are read along the *flattened leading axes* (GGUF outer rows),
+        quantized per chunk, and concatenated along axis 0. Quantization only
+        touches the last axis, so the concatenated result reshapes exactly to
+        the N-D packed layout for any rank (e.g. 3-D expert tensors).
+        """
+        bits, group = self._effective_quant(job)
         n_rows = job.source.n_rows
         name = job.source.name
         packed_parts, scale_parts, bias_parts = [], [], []
@@ -294,22 +306,24 @@ class ConversionRunner:
             hi = min(n_rows, lo + chunk_rows)
             arr = self.source.read_rows(name, lo, hi)
             arr = self._run_steps(job, {"x": arr})
-            packed, scales, biases = quantize_weights(
-                arr, self.quant.bits, self.quant.group_size
-            )
+            packed, scales, biases = quantize_weights(arr, bits, group)
             packed_parts.append(packed)
             scale_parts.append(scales)
             bias_parts.append(biases)
             del arr, packed, scales, biases
-        writer.add_quantized(
-            job.dest,
-            np.concatenate(packed_parts),
-            np.concatenate(scale_parts),
-            np.concatenate(bias_parts),
-        )
+        packed = np.concatenate(packed_parts)
+        scales = np.concatenate(scale_parts)
+        biases = np.concatenate(bias_parts)
         packed_parts.clear()
         scale_parts.clear()
         bias_parts.clear()
+        lead = tuple(int(d) for d in job.out_shape[:-1])
+        if len(lead) > 1:
+            # restore the N-D leading layout (row-order preserved by concat)
+            packed = packed.reshape(lead + packed.shape[1:])
+            scales = scales.reshape(lead + scales.shape[1:])
+            biases = biases.reshape(lead + biases.shape[1:])
+        writer.add_quantized(job.dest, packed, scales, biases)
 
     # ---------- metadata emission ----------
 
@@ -358,15 +372,28 @@ class ConversionRunner:
             k: _resolve_deep(v, f"output.top_level.{k}")
             for k, v in out.top_level.items()
         }
-        quant = (
-            {
+        quant: dict[str, Any] | None = None
+        if self.quant.enabled:
+            quant = {
                 "bits": self.quant.bits,
                 "group_size": self.quant.group_size,
                 "mode": self.quant.mode,
             }
-            if self.quant.enabled
-            else None
-        )
+            # per-rule overrides: recorded flat under the owning *module*
+            # path (weight path minus the trailing ".weight"), which is the
+            # key format mlx-lm's loader and mlx.nn.quantize class_predicate
+            # compare against
+            for job in self.plan.jobs:
+                if not job.quantize:
+                    continue
+                bits, group = self._effective_quant(job)
+                if (bits, group) != (self.quant.bits, self.quant.group_size):
+                    module_key = (
+                        job.dest[: -len(".weight")]
+                        if job.dest.endswith(".weight")
+                        else job.dest
+                    )
+                    quant[module_key] = {"bits": bits, "group_size": group}
         cfg = build_output_config(
             model_type=out.model_type,
             architectures=list(out.architectures),

@@ -17,6 +17,7 @@ import re
 from typing import Any, Iterable, Mapping
 
 from .config.schema import ArchConfig, InputSlot, OpStep, Rule, SliceSpec
+from .constants import SUPPORTED_BITS
 from .errors import PlanError
 from .ops import all_ops
 from .ops.base import OpContext
@@ -167,6 +168,9 @@ class PlannedJob:
     est_source_bytes: int
     est_output_bytes: int
     out_shape: tuple[int, ...]  # pipeline output shape, validated at plan time
+    # per-rule quantization overrides (None = use the conversion-level setting)
+    bits: int | None = None
+    group_size: int | None = None
 
     @property
     def chunkable(self) -> bool:
@@ -511,11 +515,20 @@ def plan_conversion(
                 )
             else:
                 final_shape = next(iter(slot_shapes.values()))
-            if rule.quantize and len(final_shape) != 2:
+            if rule.quantize and len(final_shape) < 2:
                 raise PlanError(
-                    f"{where}: quantized rule must produce a 2-D output, "
-                    f"pipeline produces {list(final_shape)}"
+                    f"{where}: quantized rules must produce a rank >= 2 output "
+                    f"(last axis quantized in groups), pipeline produces "
+                    f"{list(final_shape)}"
                 )
+            if rule.quantize and rule.bits is not None and rule.bits not in SUPPORTED_BITS:
+                raise PlanError(f"{where}: unsupported per-rule bits {rule.bits}")
+            if rule.quantize and rule.group_size is not None:
+                if final_shape[-1] % rule.group_size != 0:
+                    raise PlanError(
+                        f"{where}: quantized output last dim {final_shape[-1]} is "
+                        f"not divisible by the rule's group_size {rule.group_size}"
+                    )
             job = PlannedJob(
                 dest=dest,
                 rule=rule,
@@ -528,6 +541,8 @@ def plan_conversion(
                 est_source_bytes=est_src,
                 est_output_bytes=est_out,
                 out_shape=final_shape,
+                bits=rule.bits,
+                group_size=rule.group_size,
             )
             jobs.append(job)
             dest_map[dest] = rule.display_name
@@ -576,7 +591,13 @@ def _estimate_output_bytes(tensor: TensorInfo, rule: Rule) -> int:
     if rule.drop:
         return 0
     if rule.quantize:
-        return n  # refined at runtime; ~0.5-0.9 bytes/elem for 4/6-bit
+        # refined at runtime; with a per-rule bits override the packed size is
+        # exactly n*bits/8 plus fp16 scales/biases, otherwise fall back to the
+        # coarse ~0.5-0.9 bytes/elem heuristic for the conversion-level bits
+        if rule.bits is not None:
+            group = rule.group_size or 64
+            return int(n * rule.bits / 8) + 2 * 2 * (n // group)
+        return n
     return n * (4 if rule.dtype == "float32" else 2)
 
 

@@ -50,6 +50,7 @@ safetensors shard (flushed at a size limit)
 | family | config | highlights |
 |---|---|---|
 | `qwen3_5` | `configs/qwen3_5.yaml` | Qwen3.5 hybrid GDN + full attention; generic grouped v-head reorder for any heads/kv-heads ratio 1–4; NextN/MTP block removal via block-range drop rules; fused q\|k\|v; full-attention q+gate fusion pass-through; `A_log = log(−unpermute(ssm_a))`; conv1d `(dim,k) → (dim,k,1)`; output config nested under `text_config` |
+| `qwen35moe` | `configs/qwen3_5_moe.yaml` | Qwen3.5-MoE (hybrid GDN + full attention + 256-expert sparse MoE); everything from `qwen3_5` plus N-D (3-D expert) quantization with chunk-safe row streaming; config-declared per-rule bits/group_size overrides emitted as mlx-lm per-module keys (router and shared-expert gate at 8 bits); GGUF metadata-array passthrough (`rope.dimension_sections` → `mrope_section`) |
 | `qwen3` | `configs/qwen3.yaml` | dense transformer; tied-embedding aware (`tie_word_embeddings` derived from `output.weight` presence); q/k-norm pass-through |
 | `llama` | `configs/llama.yaml` | Llama family; undoes the llama.cpp convert-time q/k out-axis storage permutation with a generic reshape→permute→reshape chain; drops the derived `rope_freqs.weight` buffer |
 | `gemma3` | `configs/gemma3.yaml` | Gemma 3 text; subtracts the llama.cpp-baked `+1` from all RMSNorm weights (mlx-lm `gemma3_text` re-adds 1.0 at runtime); sliding/global attention pattern literals in output config |

@@ -73,6 +73,41 @@ def _scalar(field) -> Any:
     return field.contents()
 
 
+# Metadata arrays at or below this size are decoded into Python lists; larger
+# arrays (tokenizers, vocab tables) stay cheap placeholder strings so that
+# metadata inspection never materializes megabyte-scale lists.
+_MAX_ARRAY_ELEMENTS = 4096
+
+
+def _decode_array(field) -> Any:
+    """Decode a *bounded* scalar/string metadata array into a Python list.
+
+    Arrays that exceed the element bound or carry unsupported element types
+    (nested arrays, binary blobs) degrade to an informational placeholder
+    string instead of failing or materializing unbounded data.
+    """
+    if len(field.types) < 2:
+        return "<array>"
+    elem = field.types[1].name
+    try:
+        n = len(field.data)
+    except TypeError:
+        return "<array>"
+    if n > _MAX_ARRAY_ELEMENTS:
+        return f"<array:{elem} x {n}>"
+    try:
+        if elem == "STRING":
+            return [
+                v.decode("utf-8", "replace") if isinstance(v, (bytes, bytearray)) else str(v)
+                for v in field.data
+            ]
+        if elem.startswith(("UINT", "INT", "FLOAT", "BOOL")):
+            return [v.item() if hasattr(v, "item") else v for v in field.data]
+    except Exception:
+        return f"<array:{elem}>"
+    return f"<array:{elem}>"
+
+
 class GGUFSource:
     """mmap-backed GGUF reader with dequantizing accessors."""
 
@@ -115,7 +150,7 @@ class GGUFSource:
             for key, field in self._reader.fields.items():
                 try:
                     if field.types[0].name == "ARRAY":
-                        meta[key] = f"<array:{field.types[1].name}>"
+                        meta[key] = _decode_array(field)
                     else:
                         meta[key] = _scalar(field)
                 except Exception:
@@ -124,7 +159,7 @@ class GGUFSource:
         return self._metadata
 
     def metadata_value(self, key: str) -> Any | None:
-        """Return a scalar metadata value, trying ``key`` then ``{arch}.key``."""
+        """Return a metadata value (scalar or decoded array), trying ``key`` then ``{arch}.key``."""
         meta = self.metadata
         if key in meta:
             return meta[key]

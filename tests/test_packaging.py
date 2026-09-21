@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-OFFICIAL = ("gemma3", "llama", "qwen3", "qwen3_5")
+OFFICIAL = ("gemma3", "llama", "qwen3", "qwen3_5", "qwen3_5_moe")
 
 
 def test_builtin_config_names_and_load():
