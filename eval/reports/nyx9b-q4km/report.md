@@ -5,17 +5,18 @@
 - protocol: identical chat template semantics (GGUF-embedded template vs the tokenizer files derived from it), single user turn with no system prompt on both sides, temp 0, max_tokens 1536 (recorded in every run record and asserted identical across sides), thinking enabled (template default) on both sides, scored over the post-<think> text
 - scoring gate: truncated / repetition-loop / empty / garbled outputs count as incorrect regardless of contained keywords; format checks are strict (single number, exactly three colors, one word, yes/no)
 - note: Apple M4 Pro 24 GB; single user turn, no system prompt, both sides; thinking enabled by template default on both sides; run 2026-09-22
+- rescoring: 2026-09-22 — zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged; changed verdicts: zh-cs-02 (src False->True, mlx True->True), en-cs-02 (src False->True, mlx True->True); previous summary: src 65.0% / mlx 60.0%, verdict agreement 85.0%, flips ['zh-cs-02', 'zh-cs-03', 'zh-cs-08', 'en-cs-02', 'en-cs-09', 'logic-03']
 
 ## Summary
 
 | metric | source | MLX |
 |---|---|---|
-| gated accuracy (40 scored) | 65.0% | 60.0% |
-| accuracy delta (MLX − source) | | -5.0% |
+| gated accuracy (40 scored) | 70.0% | 60.0% |
+| accuracy delta (MLX − source) | | -10.0% |
 | anomaly rate (45 items) | 15.6% | 31.1% |
 | total gen time (s) | 928.6 | 1090.7 |
 
-Answer agreement rate (surface form): **24.4%** · verdict agreement on scored items: **85.0%** (flips: zh-cs-02, zh-cs-03, zh-cs-08, en-cs-02, en-cs-09, logic-03)
+Answer agreement rate (surface form): **24.4%** · verdict agreement on scored items: **90.0%** (flips: zh-cs-03, zh-cs-08, en-cs-09, logic-03)
 
 Anomaly breakdown (items affected, per type):
 
@@ -26,11 +27,11 @@ Anomaly breakdown (items affected, per type):
 
 | category | n | source | MLX |
 |---|---|---|---|
-| en_common | 10 | 8/10 | 8/10 |
+| en_common | 10 | 9/10 | 8/10 |
 | instruction | 5 | 4/5 | 4/5 |
 | logic | 5 | 4/5 | 3/5 |
 | math | 10 | 1/10 | 1/10 |
-| zh_common | 10 | 9/10 | 8/10 |
+| zh_common | 10 | 10/10 | 8/10 |
 
 ## Per-question results
 
@@ -45,7 +46,7 @@ Anomaly breakdown (items affected, per type):
 中国的首都是北京。
 ```
 
-### zh-cs-02 — src ✗ / mlx ✓ / agree NO
+### zh-cs-02 — src ✓ / mlx ✓ / agree NO
 - gold: 12
 - source (13.65s):
 ```
@@ -527,7 +528,7 @@ The capital of France is **Paris**.
 The capital of France is **Paris**.
 ```
 
-### en-cs-02 — src ✗ / mlx ✓ / agree NO
+### en-cs-02 — src ✓ / mlx ✓ / agree NO
 - gold: 366
 - source (12.98s):
 ```

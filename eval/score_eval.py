@@ -6,6 +6,12 @@ Consumes the two JSONL files produced by run_eval.py and emits:
 * ``report.json`` — full machine-readable results (committed)
 * ``report.md``   — per-question outputs, verdicts, and summary metrics (committed)
 
+``--rescore-report`` re-evaluates an existing ``report.json`` under the
+current ``questions.json`` checks without re-running the models: verdicts
+are recomputed from the embedded per-item outputs, while generation-time
+fields (anomalies, blocking flags, timings) are preserved from the original
+run and a ``rescoring`` provenance block records what changed.
+
 Gating rules (strict):
 
 * Runtime parameters (``max_tokens``, ``temp``) are read from the *actual
@@ -27,6 +33,7 @@ import argparse
 import json
 import re
 import statistics
+import time
 import unicodedata
 from pathlib import Path
 
@@ -235,60 +242,49 @@ def _strip_trailing_ws(text: str) -> str:
     return re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--questions", type=Path, required=True)
-    ap.add_argument("--source", type=Path, required=True,
-                    help="llama.cpp JSONL")
-    ap.add_argument("--mlx", type=Path, required=True, help="MLX JSONL")
-    ap.add_argument("--out-dir", type=Path, required=True)
-    ap.add_argument("--title", required=True)
-    ap.add_argument("--source-desc", required=True)
-    ap.add_argument("--mlx-desc", required=True)
-    ap.add_argument("--allow-partial", action="store_true",
-                    help="score only questions present in both JSONLs "
-                         "(smoke tests); default requires full coverage")
-    ap.add_argument("--note", default="",
-                    help="free-form note recorded in the report (e.g. "
-                         "system conditions during the run)")
-    args = ap.parse_args()
+def score_item(q: dict, rs: dict, rm: dict) -> dict:
+    """Score one question from its two run records into a report item."""
+    ans_s, fs, block_s = score_side(rs, q["checks"])
+    ans_m, fm, block_m = score_side(rm, q["checks"])
+    return {
+        "id": q["id"], "lang": q["lang"], "category": q["category"],
+        "prompt": q["prompt"], "gold": q["answer"],
+        "source_output": fs, "mlx_output": fm,
+        "source_correct": ans_s, "mlx_correct": ans_m,
+        "source_blocked": block_s, "mlx_blocked": block_m,
+        "source_anomalies": detect_anomalies(rs, fs),
+        "mlx_anomalies": detect_anomalies(rm, fm),
+        "agree": norm(fs) == norm(fm),
+        "source_gen_s": rs.get("gen_s"), "mlx_gen_s": rm.get("gen_s"),
+        "source_eval_s": rs.get("eval_s"), "source_load_s": rs.get("load_s"),
+    }
 
-    qdata = json.loads(args.questions.read_text())
-    questions = qdata["questions"]
-    src = load_jsonl(args.source)
-    mlx = load_jsonl(args.mlx)
-    missing = [q["id"] for q in questions
-               if q["id"] not in src or q["id"] not in mlx]
-    if missing and not args.allow_partial:
-        raise SystemExit(f"missing records for: {missing[:5]} ... ({len(missing)} total)")
-    questions = [q for q in questions if q["id"] in src and q["id"] in mlx]
 
-    # hard gate: parameters come from the run records and must match exactly
-    max_tokens, temp = assert_param_consistency(src, mlx)
+def rescore_item(q: dict, item: dict) -> dict:
+    """Re-evaluate a stored report item under the current check set.
 
-    per_q = []
+    Generation-time fields (outputs, anomaly lists, blocking flags, timings)
+    are properties of the original run and are preserved; only the
+    rule-based correctness and surface agreement are recomputed.
+    """
+    fs, fm = item["source_output"], item["mlx_output"]
+    updated = dict(item)
+    updated["source_correct"] = (
+        not item["source_blocked"] and is_correct(q["checks"], fs))
+    updated["mlx_correct"] = (
+        not item["mlx_blocked"] and is_correct(q["checks"], fm))
+    updated["agree"] = norm(fs) == norm(fm)
+    return updated
+
+
+def build_report(questions: list[dict], per_q: list[dict], *, title: str,
+                 source_desc: str, mlx_desc: str, note: str,
+                 max_tokens: int, temp: float,
+                 rescoring: dict | None = None) -> tuple[dict, str]:
+    """Aggregate scored items into (report dict, report markdown)."""
+    by_id = {r["id"]: r for r in per_q}
     scored = [q for q in questions if q["checks"][0]["type"] != "open"]
     open_qs = [q for q in questions if q["checks"][0]["type"] == "open"]
-
-    for q in questions:
-        rs, rm = src[q["id"]], mlx[q["id"]]
-        ans_s, fs, block_s = score_side(rs, q["checks"])
-        ans_m, fm, block_m = score_side(rm, q["checks"])
-        item = {
-            "id": q["id"], "lang": q["lang"], "category": q["category"],
-            "prompt": q["prompt"], "gold": q["answer"],
-            "source_output": fs, "mlx_output": fm,
-            "source_correct": ans_s, "mlx_correct": ans_m,
-            "source_blocked": block_s, "mlx_blocked": block_m,
-            "source_anomalies": detect_anomalies(rs, fs),
-            "mlx_anomalies": detect_anomalies(rm, fm),
-            "agree": norm(fs) == norm(fm),
-            "source_gen_s": rs.get("gen_s"), "mlx_gen_s": rm.get("gen_s"),
-            "source_eval_s": rs.get("eval_s"), "source_load_s": rs.get("load_s"),
-        }
-        per_q.append(item)
-
-    by_id = {r["id"]: r for r in per_q}
 
     def acc(side: str, qs=scored) -> float:
         return sum(1 for q in qs if by_id[q["id"]][f"{side}_correct"]) / len(qs)
@@ -349,22 +345,38 @@ def main() -> int:
         "per_category": cat_rows,
         "source_timing_s": gen_stats("source"),
         "mlx_timing_s": gen_stats("mlx"),
-        "source_desc": args.source_desc,
-        "mlx_desc": args.mlx_desc,
-        "note": args.note,
+        "source_desc": source_desc,
+        "mlx_desc": mlx_desc,
+        "note": note,
     }
+    if rescoring is not None:
+        summary["rescoring"] = rescoring
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    report = {"title": args.title, "summary": summary, "per_question": per_q}
-    (args.out_dir / "report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    report = {"title": title, "summary": summary, "per_question": per_q}
 
-    def flag_cell(flags: list[str]) -> str:
-        return "⚠" + ",".join(flags) if flags else ""
+    rescore_line = None
+    if rescoring is not None:
+        changed = rescoring["changed_verdicts"]
+        changed_txt = ", ".join(
+            f"{c['id']} (src {c['source'][0]}->{c['source'][1]}, "
+            f"mlx {c['mlx'][0]}->{c['mlx'][1]})"
+            for c in changed) or "none"
+        prev = rescoring["previous"]
 
-    lines = [f"# {args.title}", "",
-             f"- source: {args.source_desc}",
-             f"- MLX: {args.mlx_desc}",
+        def pct(value) -> str:
+            return "n/a" if value is None else f"{value:.1%}"
+
+        rescore_line = (
+            f"- rescoring: {rescoring['date']} — {rescoring['reason']}; "
+            f"changed verdicts: {changed_txt}; previous summary: "
+            f"src {pct(prev.get('source_accuracy'))} / "
+            f"mlx {pct(prev.get('mlx_accuracy'))}, "
+            f"verdict agreement {pct(prev.get('verdict_agreement_rate'))}, "
+            f"flips {prev.get('verdict_flips')}")
+
+    lines = [f"# {title}", "",
+             f"- source: {source_desc}",
+             f"- MLX: {mlx_desc}",
              (f"- protocol: identical chat template semantics (GGUF-embedded "
               f"template vs the tokenizer files derived from it), single user "
               f"turn with no system prompt on both sides, temp {temp:g}, "
@@ -375,7 +387,8 @@ def main() -> int:
               "outputs count as incorrect regardless of contained keywords; "
               "format checks are strict (single number, exactly three colors, "
               "one word, yes/no)"),
-             *( [f"- note: {args.note}"] if args.note else [] ),
+             *([f"- note: {note}"] if note else []),
+             *([rescore_line] if rescore_line else []),
              "",
              "## Summary", "",
              "| metric | source | MLX |",
@@ -413,8 +426,103 @@ def main() -> int:
                   "```", _strip_trailing_ws(r["source_output"]) or "(empty)", "```",
                   f"- mlx ({r['mlx_gen_s']}s):",
                   "```", _strip_trailing_ws(r["mlx_output"]) or "(empty)", "```", ""]
-    (args.out_dir / "report.md").write_text("\n".join(lines) + "\n")
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return report, "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--questions", type=Path, required=True)
+    ap.add_argument("--source", type=Path, default=None,
+                    help="llama.cpp JSONL (fresh scoring runs)")
+    ap.add_argument("--mlx", type=Path, default=None, help="MLX JSONL (fresh scoring runs)")
+    ap.add_argument("--rescore-report", type=Path, default=None,
+                    help="rescoring mode: re-evaluate an existing report.json "
+                         "under the current questions.json checks, reusing the "
+                         "embedded per-item outputs; exclusive with --source/--mlx")
+    ap.add_argument("--out-dir", type=Path, required=True)
+    ap.add_argument("--title", default=None)
+    ap.add_argument("--source-desc", default=None)
+    ap.add_argument("--mlx-desc", default=None)
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="score only questions present in both JSONLs "
+                         "(smoke tests); default requires full coverage")
+    ap.add_argument("--note", default=None,
+                    help="free-form note recorded in the report (e.g. "
+                         "system conditions during the run); in rescoring "
+                         "mode this is the rescoring reason")
+    args = ap.parse_args()
+
+    qdata = json.loads(args.questions.read_text())
+    questions = qdata["questions"]
+
+    if args.rescore_report:
+        if args.source or args.mlx:
+            raise SystemExit("--rescore-report is exclusive with --source/--mlx")
+        report = json.loads(args.rescore_report.read_text())
+        stored = {r["id"]: r for r in report["per_question"]}
+        missing = [q["id"] for q in questions if q["id"] not in stored]
+        if missing and not args.allow_partial:
+            raise SystemExit(f"missing records for: {missing[:5]} ... ({len(missing)} total)")
+        questions = [q for q in questions if q["id"] in stored]
+        old_summary = report["summary"]
+        max_tokens = int(old_summary["recorded_max_tokens"])
+        temp = float(old_summary["recorded_temp"])
+        note = old_summary.get("note", "")  # preserved; --note is the reason
+        changed = []
+        per_q = []
+        for q in questions:
+            old = stored[q["id"]]
+            new = rescore_item(q, old)
+            if (old["source_correct"], old["mlx_correct"]) != (
+                    new["source_correct"], new["mlx_correct"]):
+                changed.append({
+                    "id": q["id"],
+                    "source": [old["source_correct"], new["source_correct"]],
+                    "mlx": [old["mlx_correct"], new["mlx_correct"]],
+                })
+            per_q.append(new)
+        rescoring = {
+            "date": time.strftime("%Y-%m-%d"),
+            "reason": args.note or ("questions/checks updated; verdicts "
+                                    "recomputed from embedded outputs"),
+            "changed_verdicts": changed,
+            "previous": {k: old_summary.get(k) for k in (
+                "source_accuracy", "mlx_accuracy", "answer_agreement_rate",
+                "verdict_agreement_rate", "verdict_flips")},
+        }
+        title = args.title or report["title"]
+        source_desc = args.source_desc or old_summary.get("source_desc") or ""
+        mlx_desc = args.mlx_desc or old_summary.get("mlx_desc") or ""
+    else:
+        if not (args.source and args.mlx):
+            raise SystemExit(
+                "--source and --mlx are required unless --rescore-report is given")
+        if not (args.title and args.source_desc and args.mlx_desc):
+            raise SystemExit(
+                "--title/--source-desc/--mlx-desc are required for a fresh scoring run")
+        src = load_jsonl(args.source)
+        mlx = load_jsonl(args.mlx)
+        missing = [q["id"] for q in questions
+                   if q["id"] not in src or q["id"] not in mlx]
+        if missing and not args.allow_partial:
+            raise SystemExit(f"missing records for: {missing[:5]} ... ({len(missing)} total)")
+        questions = [q for q in questions if q["id"] in src and q["id"] in mlx]
+        # hard gate: parameters come from the run records and must match exactly
+        max_tokens, temp = assert_param_consistency(src, mlx)
+        per_q = [score_item(q, src[q["id"]], mlx[q["id"]]) for q in questions]
+        rescoring = None
+        note = args.note or ""
+        title, source_desc, mlx_desc = args.title, args.source_desc, args.mlx_desc
+
+    report, md = build_report(
+        questions, per_q, title=title, source_desc=source_desc,
+        mlx_desc=mlx_desc, note=note, max_tokens=max_tokens, temp=temp,
+        rescoring=rescoring)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    (args.out_dir / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    (args.out_dir / "report.md").write_text(md)
+    print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
     return 0
 
 

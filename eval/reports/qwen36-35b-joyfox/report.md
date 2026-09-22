@@ -1,5 +1,3 @@
-> **SUPERSEDED HISTORY (2026-09-21).** The MLX side of this run was the 4-bit baseline, the wrong target for an IQ3-dominant source; that output has been deleted (Trash) and the converter now auto-selects target bits. Kept only as a scorer-regression / methodology record; not citable as a current recommendation.
-
 # Capability regression: JoyFox Qwen3.6-35B-A3B (source i1-IQ3_M vs converted MLX 4-bit) [SUPERSEDED HISTORY]
 
 - source: llama-completion 0.4.1, JoyFox-Qwen3.6-35B-A3B-RP-Aggressive.i1-IQ3_M.gguf, temp 0, max_tokens 4096, --jinja (GGUF-embedded template), thinking on
@@ -7,17 +5,18 @@
 - protocol: identical chat template semantics (GGUF-embedded template vs the tokenizer files derived from it), single user turn with no system prompt on both sides, temp 0, max_tokens 4096 (recorded in every run record and asserted identical across sides), thinking enabled (template default) on both sides, scored over the post-<think> text
 - scoring gate: truncated / repetition-loop / empty / garbled outputs count as incorrect regardless of contained keywords; format checks are strict (single number, exactly three colors, one word, yes/no)
 - note: SUPERSEDED HISTORY (2026-09-21): the MLX side of this run was the 4-bit baseline built before --bits auto existed; that output has been moved to Trash and this report is kept only as a scorer-regression/methodology record. It must not be cited as a current recommendation. 35B MLX generation ran under heavy memory pressure; timing noisy. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict).
+- rescoring: 2026-09-22 — zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged; changed verdicts: zh-cs-02 (src True->True, mlx False->True); previous summary: src 67.5% / mlx 60.0%, verdict agreement 87.5%, flips ['zh-cs-02', 'zh-cs-04', 'en-cs-04', 'math-01', 'inst-04']
 
 ## Summary
 
 | metric | source | MLX |
 |---|---|---|
-| gated accuracy (40 scored) | 67.5% | 60.0% |
-| accuracy delta (MLX − source) | | -7.5% |
+| gated accuracy (40 scored) | 67.5% | 62.5% |
+| accuracy delta (MLX − source) | | -5.0% |
 | anomaly rate (45 items) | 4.4% | 13.3% |
 | total gen time (s) | 616.8 | 1824.5 |
 
-Answer agreement rate (surface form): **37.8%** · verdict agreement on scored items: **87.5%** (flips: zh-cs-02, zh-cs-04, en-cs-04, math-01, inst-04)
+Answer agreement rate (surface form): **37.8%** · verdict agreement on scored items: **90.0%** (flips: zh-cs-04, en-cs-04, math-01, inst-04)
 
 Anomaly breakdown (items affected, per type):
 
@@ -32,7 +31,7 @@ Anomaly breakdown (items affected, per type):
 | instruction | 5 | 3/5 | 4/5 |
 | logic | 5 | 5/5 | 5/5 |
 | math | 10 | 2/10 | 1/10 |
-| zh_common | 10 | 10/10 | 8/10 |
+| zh_common | 10 | 10/10 | 9/10 |
 
 ## Per-question results
 
@@ -47,7 +46,7 @@ Anomaly breakdown (items affected, per type):
 中国的首都是北京。
 ```
 
-### zh-cs-02 — src ✓ / mlx ✗ / agree NO
+### zh-cs-02 — src ✓ / mlx ✓ / agree NO
 - gold: 12
 - source (9.27s):
 ```

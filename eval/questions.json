@@ -3,7 +3,7 @@
   "max_tokens": 1536,
   "questions": [
     {"id": "zh-cs-01", "lang": "zh", "category": "zh_common", "prompt": "中国的首都是哪座城市？", "answer": "北京", "checks": [{"type": "contains", "patterns": ["北京"]}]},
-    {"id": "zh-cs-02", "lang": "zh", "category": "zh_common", "prompt": "一年有多少个月？", "answer": "12", "checks": [{"type": "number", "value": 12}, {"type": "contains", "patterns": ["十二"]}]},
+    {"id": "zh-cs-02", "lang": "zh", "category": "zh_common", "prompt": "一年有多少个月？", "answer": "12", "checks": [{"type": "number", "value": 12}, {"type": "contains", "patterns": ["十二", "12个月", "十二个月"]}]},
     {"id": "zh-cs-03", "lang": "zh", "category": "zh_common", "prompt": "水的化学式是什么？", "answer": "H2O", "checks": [{"type": "contains", "patterns": ["h2o"]}]},
     {"id": "zh-cs-04", "lang": "zh", "category": "zh_common", "prompt": "“锄禾日当午”的下一句是什么？", "answer": "汗滴禾下土", "checks": [{"type": "contains", "patterns": ["汗滴禾下土"]}]},
     {"id": "zh-cs-05", "lang": "zh", "category": "zh_common", "prompt": "中国面积最大的省级行政区是哪一个？", "answer": "新疆", "checks": [{"type": "contains", "patterns": ["新疆"]}]},
@@ -14,7 +14,7 @@
     {"id": "zh-cs-10", "lang": "zh", "category": "zh_common", "prompt": "中国传统节日春节是农历的哪一天？", "answer": "正月初一", "checks": [{"type": "contains", "patterns": ["正月初一", "大年初一", "初一"]}]},
 
     {"id": "en-cs-01", "lang": "en", "category": "en_common", "prompt": "What is the capital of France?", "answer": "Paris", "checks": [{"type": "contains", "patterns": ["paris"]}]},
-    {"id": "en-cs-02", "lang": "en", "category": "en_common", "prompt": "How many days are there in a leap year?", "answer": "366", "checks": [{"type": "number", "value": 366}]},
+    {"id": "en-cs-02", "lang": "en", "category": "en_common", "prompt": "How many days are there in a leap year?", "answer": "366", "checks": [{"type": "number", "value": 366}, {"type": "contains", "patterns": ["366 days", "366天"]}]},
     {"id": "en-cs-03", "lang": "en", "category": "en_common", "prompt": "What is the chemical symbol for gold?", "answer": "Au", "checks": [{"type": "contains", "patterns": ["au"]}]},
     {"id": "en-cs-04", "lang": "en", "category": "en_common", "prompt": "Who wrote the play \"Romeo and Juliet\"?", "answer": "Shakespeare", "checks": [{"type": "contains", "patterns": ["shakespeare"]}]},
     {"id": "en-cs-05", "lang": "en", "category": "en_common", "prompt": "What is the largest planet in our solar system?", "answer": "Jupiter", "checks": [{"type": "contains", "patterns": ["jupiter"]}]},

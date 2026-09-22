@@ -5,12 +5,13 @@
 - protocol: identical chat template semantics (GGUF-embedded template vs the tokenizer files derived from it), single user turn with no system prompt on both sides, temp 0, max_tokens 512 (recorded in every run record and asserted identical across sides), thinking enabled (template default) on both sides, scored over the post-<think> text
 - scoring gate: truncated / repetition-loop / empty / garbled outputs count as incorrect regardless of contained keywords; format checks are strict (single number, exactly three colors, one word, yes/no)
 - note: Small-model protocol calibration pair. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict; single number, exactly three colors, one word, yes/no).
+- rescoring: 2026-09-22 — zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged; changed verdicts: en-cs-02 (src False->True, mlx False->True); previous summary: src 42.5% / mlx 45.0%, verdict agreement 92.5%, flips ['zh-cs-09', 'en-cs-07', 'logic-01']
 
 ## Summary
 
 | metric | source | MLX |
 |---|---|---|
-| gated accuracy (40 scored) | 42.5% | 45.0% |
+| gated accuracy (40 scored) | 45.0% | 47.5% |
 | accuracy delta (MLX − source) | | +2.5% |
 | anomaly rate (45 items) | 4.4% | 6.7% |
 | total gen time (s) | 33.5 | 14.7 |
@@ -26,7 +27,7 @@ Anomaly breakdown (items affected, per type):
 
 | category | n | source | MLX |
 |---|---|---|---|
-| en_common | 10 | 7/10 | 8/10 |
+| en_common | 10 | 8/10 | 9/10 |
 | instruction | 5 | 1/5 | 1/5 |
 | logic | 5 | 2/5 | 3/5 |
 | math | 10 | 1/10 | 1/10 |
@@ -155,7 +156,7 @@ The capital of France is Paris.
 The capital of France is Paris.
 ```
 
-### en-cs-02 — src ✗ / mlx ✗ / agree NO
+### en-cs-02 — src ✓ / mlx ✓ / agree NO
 - gold: 366
 - source (0.65s):
 ```

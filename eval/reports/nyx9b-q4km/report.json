@@ -6,16 +6,14 @@
     "n_open": 5,
     "recorded_max_tokens": 1536,
     "recorded_temp": 0.0,
-    "source_accuracy": 0.65,
+    "source_accuracy": 0.7,
     "mlx_accuracy": 0.6,
-    "accuracy_delta_mlx_minus_source": -0.05,
+    "accuracy_delta_mlx_minus_source": -0.1,
     "answer_agreement_rate": 0.2444,
-    "verdict_agreement_rate": 0.85,
+    "verdict_agreement_rate": 0.9,
     "verdict_flips": [
-      "zh-cs-02",
       "zh-cs-03",
       "zh-cs-08",
-      "en-cs-02",
       "en-cs-09",
       "logic-03"
     ],
@@ -32,7 +30,7 @@
     "per_category": [
       {
         "category": "en_common",
-        "source_correct": 8,
+        "source_correct": 9,
         "mlx_correct": 8,
         "n": 10
       },
@@ -56,7 +54,7 @@
       },
       {
         "category": "zh_common",
-        "source_correct": 9,
+        "source_correct": 10,
         "mlx_correct": 8,
         "n": 10
       }
@@ -73,7 +71,49 @@
     },
     "source_desc": "Nyx-RP-9B-Instruct-2608-v1.Q4_K_M.gguf via llama-completion 0.4.1 (--jinja, ctx 4096)",
     "mlx_desc": "gguf2mlx-stream conversion, MLX affine 4-bit g64, --bits auto (Q4_K dominant), mlx-lm generate",
-    "note": "Apple M4 Pro 24 GB; single user turn, no system prompt, both sides; thinking enabled by template default on both sides; run 2026-09-22"
+    "note": "Apple M4 Pro 24 GB; single user turn, no system prompt, both sides; thinking enabled by template default on both sides; run 2026-09-22",
+    "rescoring": {
+      "date": "2026-09-22",
+      "reason": "zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged",
+      "changed_verdicts": [
+        {
+          "id": "zh-cs-02",
+          "source": [
+            false,
+            true
+          ],
+          "mlx": [
+            true,
+            true
+          ]
+        },
+        {
+          "id": "en-cs-02",
+          "source": [
+            false,
+            true
+          ],
+          "mlx": [
+            true,
+            true
+          ]
+        }
+      ],
+      "previous": {
+        "source_accuracy": 0.65,
+        "mlx_accuracy": 0.6,
+        "answer_agreement_rate": 0.2444,
+        "verdict_agreement_rate": 0.85,
+        "verdict_flips": [
+          "zh-cs-02",
+          "zh-cs-03",
+          "zh-cs-08",
+          "en-cs-02",
+          "en-cs-09",
+          "logic-03"
+        ]
+      }
+    }
   },
   "per_question": [
     {
@@ -104,7 +144,7 @@
       "gold": "12",
       "source_output": "一年有 **12 个月**。\n\n分别是：\n1 月、2 月、3 月、4 月、5 月、6 月、7 月、8 月、9 月、10 月、11 月、12 月。",
       "mlx_output": "一年有 **12 个月**。\n\n具体月份如下：\n1. 一月（1 月）\n2. 二月（2 月）\n3. 三月（3 月）\n4. 四月（4 月）\n5. 五月（5 月）\n6. 六月（6 月）\n7. 七月（7 月）\n8. 八月（8 月）\n9. 九月（9 月）\n10. 十月（10 月）\n11. 十一月（11 月）\n12. 十二月（12 月）\n\n其中，**二月**比较特殊：\n- 平年有 28 天\n- 闰年有 29 天\n\n其他月份的天数固定不变。",
-      "source_correct": false,
+      "source_correct": true,
       "mlx_correct": true,
       "source_blocked": [],
       "mlx_blocked": [],
@@ -314,7 +354,7 @@
       "gold": "366",
       "source_output": "There are **366 days** in a leap year.\n\nThe extra day is added to February, making it 29 days long instead of the usual 28.",
       "mlx_output": "There are **366 days** in a leap year.",
-      "source_correct": false,
+      "source_correct": true,
       "mlx_correct": true,
       "source_blocked": [],
       "mlx_blocked": [],

@@ -6,8 +6,8 @@
     "n_open": 5,
     "recorded_max_tokens": 512,
     "recorded_temp": 0.0,
-    "source_accuracy": 0.425,
-    "mlx_accuracy": 0.45,
+    "source_accuracy": 0.45,
+    "mlx_accuracy": 0.475,
     "accuracy_delta_mlx_minus_source": 0.025,
     "answer_agreement_rate": 0.2222,
     "verdict_agreement_rate": 0.925,
@@ -29,8 +29,8 @@
     "per_category": [
       {
         "category": "en_common",
-        "source_correct": 7,
-        "mlx_correct": 8,
+        "source_correct": 8,
+        "mlx_correct": 9,
         "n": 10
       },
       {
@@ -70,7 +70,35 @@
     },
     "source_desc": "llama-completion 0.4.1, Llama-3.2-1B-Instruct-Q4_K_M.gguf, temp 0, max_tokens 512, --jinja, no thinking",
     "mlx_desc": "mlx-lm via gguf2mlx-stream llama conversion (4-bit, from local .integration-models fixture), temp 0, max_tokens 512, tokenizer chat template, no thinking",
-    "note": "Small-model protocol calibration pair. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict; single number, exactly three colors, one word, yes/no)."
+    "note": "Small-model protocol calibration pair. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict; single number, exactly three colors, one word, yes/no).",
+    "rescoring": {
+      "date": "2026-09-22",
+      "reason": "zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged",
+      "changed_verdicts": [
+        {
+          "id": "en-cs-02",
+          "source": [
+            false,
+            true
+          ],
+          "mlx": [
+            false,
+            true
+          ]
+        }
+      ],
+      "previous": {
+        "source_accuracy": 0.425,
+        "mlx_accuracy": 0.45,
+        "answer_agreement_rate": 0.2222,
+        "verdict_agreement_rate": 0.925,
+        "verdict_flips": [
+          "zh-cs-09",
+          "en-cs-07",
+          "logic-01"
+        ]
+      }
+    }
   },
   "per_question": [
     {
@@ -307,8 +335,8 @@
       "gold": "366",
       "source_output": "There are 366 days in a leap year. This extra day is added to the calendar to account for the Earth's orbit around the Sun, which takes approximately 365.24 days to complete.",
       "mlx_output": "There are 366 days in a leap year. This is because a leap year has 366 days, which is one day more than a standard year has 365 days.",
-      "source_correct": false,
-      "mlx_correct": false,
+      "source_correct": true,
+      "mlx_correct": true,
       "source_blocked": [],
       "mlx_blocked": [],
       "source_anomalies": [],

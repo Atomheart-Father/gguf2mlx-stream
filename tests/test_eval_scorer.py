@@ -244,3 +244,127 @@ def test_report_markdown_has_no_trailing_whitespace(tmp_path):
     data = json.loads((out / "report.json").read_text())
     assert data["summary"]["recorded_max_tokens"] == 64
     assert "max_tokens 64" in md
+
+
+# ---------------------------------------------------------------------------
+# zh-cs-02 equivalent-answer check + offline rescoring
+# ---------------------------------------------------------------------------
+
+
+_COMMITTED_QUESTIONS = (
+    Path(__file__).resolve().parent.parent / "eval" / "questions.json"
+)
+
+
+def _zh_cs_02_checks() -> list[dict]:
+    data = json.loads(_COMMITTED_QUESTIONS.read_text())
+    return next(q["checks"] for q in data["questions"] if q["id"] == "zh-cs-02")
+
+
+def test_committed_zh_cs_02_accepts_equivalent_answers():
+    """The month question must accept both "12 个月" and "十二个月" styles.
+
+    Regression for the asymmetric verdict found in the Nyx/JoyFox reports:
+    the source-style answer lists every month (multiple numbers, so the
+    strict ``number`` check fails) and must pass via the equivalent-answer
+    contains patterns.
+    """
+    checks = _zh_cs_02_checks()
+    assert sc.is_correct(checks, "一年有 **12 个月**。\n1 月、2 月、…、12 月。")
+    assert sc.is_correct(checks, "一年有12个月。农历一年可能有12或13个月。")
+    assert sc.is_correct(checks, "一年有十二个月。")
+    assert not sc.is_correct(checks, "一年有 13 个月。")
+    assert not sc.is_correct(checks, "一年有 11 个月。")
+
+
+def _en_cs_02_checks() -> list[dict]:
+    data = json.loads(_COMMITTED_QUESTIONS.read_text())
+    return next(q["checks"] for q in data["questions"] if q["id"] == "en-cs-02")
+
+
+def test_committed_en_cs_02_accepts_equivalent_answers():
+    """The leap-year question must accept an explanatory correct answer.
+
+    Regression for the same asymmetry as zh-cs-02: the source answer
+    mentions February's 29 and the usual 28 days (three numbers, strict
+    ``number`` check fails) and must pass via the "366 days" pattern.
+    """
+    checks = _en_cs_02_checks()
+    assert sc.is_correct(
+        checks,
+        "There are 366 days in a leap year. The extra day is added to "
+        "February, making it 29 days long instead of the usual 28.")
+    assert sc.is_correct(checks, "There are **366 days** in a leap year.")
+    assert not sc.is_correct(checks, "A leap year has 365 days.")
+    assert not sc.is_correct(checks, "It takes 365.24 days to orbit the Sun.")
+
+
+def test_rescore_cli_recomputes_verdicts_and_records_provenance(tmp_path):
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"max_tokens": 64, "questions": [
+        {"id": "q1", "lang": "zh", "category": "cat", "prompt": "p", "answer": "12",
+         "checks": [{"type": "number", "value": 12},
+                    {"type": "contains", "patterns": ["十二", "12个月"]}]},
+    ]}))
+    stored = {
+        "title": "t",
+        "summary": {"recorded_max_tokens": 64, "recorded_temp": 0.0,
+                    "note": "original note", "source_desc": "s", "mlx_desc": "m",
+                    "source_accuracy": 0.0, "mlx_accuracy": 1.0,
+                    "answer_agreement_rate": 0.0, "verdict_agreement_rate": 0.0,
+                    "verdict_flips": ["q1"]},
+        "per_question": [{
+            "id": "q1", "lang": "zh", "category": "cat", "prompt": "p", "gold": "12",
+            "source_output": "一年有 **12 个月**。1 月、2 月、…、12 月。",
+            "mlx_output": "一年有12个月。",
+            "source_correct": False, "mlx_correct": True,
+            "source_blocked": [], "mlx_blocked": [],
+            "source_anomalies": [], "mlx_anomalies": [],
+            "agree": False, "source_gen_s": 1.0, "mlx_gen_s": 1.0,
+            "source_eval_s": 0.1, "source_load_s": 0.1,
+        }],
+    }
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(stored))
+    out = tmp_path / "out"
+    argv = ["score", "--questions", str(questions),
+            "--rescore-report", str(report_path), "--out-dir", str(out),
+            "--note", "test reason"]
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(sys, "argv", argv)
+    try:
+        assert sc.main() == 0
+    finally:
+        monkey.undo()
+
+    data = json.loads((out / "report.json").read_text())
+    assert data["per_question"][0]["source_correct"] is True
+    assert data["summary"]["source_accuracy"] == 1.0
+    # generation-time fields are preserved, not recomputed
+    assert data["summary"]["note"] == "original note"
+    rescoring = data["summary"]["rescoring"]
+    assert rescoring["reason"] == "test reason"
+    assert rescoring["changed_verdicts"] == [
+        {"id": "q1", "source": [False, True], "mlx": [True, True]}]
+    assert rescoring["previous"]["source_accuracy"] == 0.0
+    md = (out / "report.md").read_text()
+    assert "test reason" in md
+    assert "q1 (src False->True, mlx True->True)" in md
+
+
+def test_rescore_cli_is_exclusive_with_jsonl_inputs(tmp_path):
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"questions": []}))
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps({"title": "t", "summary": {}, "per_question": []}))
+    argv = ["score", "--questions", str(questions),
+            "--rescore-report", str(report_path),
+            "--source", str(tmp_path / "x.jsonl"),
+            "--out-dir", str(tmp_path / "out")]
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(sys, "argv", argv)
+    try:
+        with pytest.raises(SystemExit, match="exclusive"):
+            sc.main()
+    finally:
+        monkey.undo()

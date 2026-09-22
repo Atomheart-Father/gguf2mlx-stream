@@ -7,12 +7,11 @@
     "recorded_max_tokens": 4096,
     "recorded_temp": 0.0,
     "source_accuracy": 0.675,
-    "mlx_accuracy": 0.6,
-    "accuracy_delta_mlx_minus_source": -0.075,
+    "mlx_accuracy": 0.625,
+    "accuracy_delta_mlx_minus_source": -0.05,
     "answer_agreement_rate": 0.3778,
-    "verdict_agreement_rate": 0.875,
+    "verdict_agreement_rate": 0.9,
     "verdict_flips": [
-      "zh-cs-02",
       "zh-cs-04",
       "en-cs-04",
       "math-01",
@@ -56,7 +55,7 @@
       {
         "category": "zh_common",
         "source_correct": 10,
-        "mlx_correct": 8,
+        "mlx_correct": 9,
         "n": 10
       }
     ],
@@ -72,7 +71,37 @@
     },
     "source_desc": "llama-completion 0.4.1, JoyFox-Qwen3.6-35B-A3B-RP-Aggressive.i1-IQ3_M.gguf, temp 0, max_tokens 4096, --jinja (GGUF-embedded template), thinking on",
     "mlx_desc": "mlx-lm via gguf2mlx-stream qwen35moe conversion (4-bit baseline, 5 shards, 18.17 GiB — output since DELETED; wrong target bits for an IQ3-dominant source), temp 0, max_tokens 4096, tokenizer chat template, thinking on",
-    "note": "SUPERSEDED HISTORY (2026-09-21): the MLX side of this run was the 4-bit baseline built before --bits auto existed; that output has been moved to Trash and this report is kept only as a scorer-regression/methodology record. It must not be cited as a current recommendation. 35B MLX generation ran under heavy memory pressure; timing noisy. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict)."
+    "note": "SUPERSEDED HISTORY (2026-09-21): the MLX side of this run was the 4-bit baseline built before --bits auto existed; that output has been moved to Trash and this report is kept only as a scorer-regression/methodology record. It must not be cited as a current recommendation. 35B MLX generation ran under heavy memory pressure; timing noisy. Scored with the strict gate (blocking anomalies count as incorrect; format checks strict).",
+    "rescoring": {
+      "date": "2026-09-22",
+      "reason": "zh-cs-02 and en-cs-02 now accept equivalent correct answers (12个月/十二个月; 366 days); verdicts recomputed offline from the embedded per-item outputs, generation protocol and anomaly flags unchanged",
+      "changed_verdicts": [
+        {
+          "id": "zh-cs-02",
+          "source": [
+            true,
+            true
+          ],
+          "mlx": [
+            false,
+            true
+          ]
+        }
+      ],
+      "previous": {
+        "source_accuracy": 0.675,
+        "mlx_accuracy": 0.6,
+        "answer_agreement_rate": 0.3778,
+        "verdict_agreement_rate": 0.875,
+        "verdict_flips": [
+          "zh-cs-02",
+          "zh-cs-04",
+          "en-cs-04",
+          "math-01",
+          "inst-04"
+        ]
+      }
+    }
   },
   "per_question": [
     {
@@ -104,7 +133,7 @@
       "source_output": "一年有12个月。",
       "mlx_output": "一年有12个月。这是公历（格里高利历）的标准规定，也是全球绝大多数国家采用的历法体系。需要注意的是，农历（中国传统历法）一年可能有12或13个月（闰年），但公历始终固定为12个月。",
       "source_correct": true,
-      "mlx_correct": false,
+      "mlx_correct": true,
       "source_blocked": [],
       "mlx_blocked": [],
       "source_anomalies": [],
