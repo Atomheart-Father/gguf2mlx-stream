@@ -42,3 +42,6 @@ AGENTS.md
 
 # integration model fixtures (never committed)
 .integration-models/
+
+# Serena MCP tool metadata
+.serena/
