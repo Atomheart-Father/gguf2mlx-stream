@@ -109,13 +109,12 @@ GGUF2MLX_NYX_REFERENCE_6BIT  (default ~/Models/MLX/Nyx-RP-9B-Instruct-2608-v1-ML
 GGUF2MLX_NYX_REFERENCE_4BIT  (default ~/Models/MLX/Nyx-RP-9B-Instruct-2608-v1-MLX-4bit)
 ```
 
-Note: the original golden-reference directories (produced by the
-`gguf2mlx-nyx` reference converter) were deleted from the local model
-library after the parity work concluded. The default 4-bit path now holds
-`gguf2mlx-stream`'s own Nyx conversion (see README § "End-to-end case
-study"), so `test_reference_4bit_structure` runs as a structural
-self-check; restore a true reference via the env overrides when one is
-available again.
+Note: the golden-reference directories (produced by the `gguf2mlx-nyx`
+reference converter) and the local re-converted Nyx output were deleted
+from the local model library after the parity work and the end-to-end
+case study concluded; all three parity tests skip cleanly without these
+assets. Point the env overrides at any Nyx MLX 4-bit/6-bit directory to
+re-enable the structural checks.
 
 ## F. Optional env-gated local integration (`test_integration_nyx.py`)
 
