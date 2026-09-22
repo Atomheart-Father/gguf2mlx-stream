@@ -33,7 +33,7 @@ htmlcov/
 
 # Local development notes and generated run artifacts — never published
 AGENTS.md
-reports/
+/reports/
 
 # OS / editor
 .DS_Store
