@@ -50,7 +50,7 @@ def clean_llama_stdout(s: str) -> str:
 
 def run_mlx(model_path: Path, questions: list[dict], max_tokens: int,
             out_path: Path, limit: int | None) -> None:
-    from mlx_lm import load, generate
+    from mlx_lm import generate, load
     from mlx_lm.sample_utils import make_sampler
 
     t0 = time.time()
@@ -95,7 +95,7 @@ def run_llamacpp(gguf: Path, questions: list[dict], max_tokens: int,
             ]
             t1 = time.time()
             proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  stdin=subprocess.DEVNULL)
+                                  stdin=subprocess.DEVNULL, check=False)
             wall_s = time.time() - t1
             perf = {}
             for m in proc.stderr.splitlines():

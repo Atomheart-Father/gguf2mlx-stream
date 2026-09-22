@@ -106,9 +106,7 @@ def is_repetition_loop(final: str) -> bool:
     lines = [ln.strip() for ln in final.strip().splitlines() if ln.strip()]
     if len(lines) >= 4 and len(set(lines[-4:])) == 1:
         return True
-    if re.search(r"(.)\1{29,}", s):
-        return True
-    return False
+    return bool(re.search(r"(.)\1{29,}", s))
 
 
 def detect_anomalies(record: dict, final: str) -> list[str]:
@@ -367,16 +365,16 @@ def main() -> int:
     lines = [f"# {args.title}", "",
              f"- source: {args.source_desc}",
              f"- MLX: {args.mlx_desc}",
-             f"- protocol: identical chat template semantics (GGUF-embedded "
-             f"template vs the tokenizer files derived from it), single user "
-             f"turn with no system prompt on both sides, temp {temp:g}, "
-             f"max_tokens {max_tokens} (recorded in every run record and "
-             f"asserted identical across sides), thinking enabled (template "
-             f"default) on both sides, scored over the post-<think> text",
-             "- scoring gate: truncated / repetition-loop / empty / garbled "
-             "outputs count as incorrect regardless of contained keywords; "
-             "format checks are strict (single number, exactly three colors, "
-             "one word, yes/no)",
+             (f"- protocol: identical chat template semantics (GGUF-embedded "
+              f"template vs the tokenizer files derived from it), single user "
+              f"turn with no system prompt on both sides, temp {temp:g}, "
+              f"max_tokens {max_tokens} (recorded in every run record and "
+              f"asserted identical across sides), thinking enabled (template "
+              f"default) on both sides, scored over the post-<think> text"),
+             ("- scoring gate: truncated / repetition-loop / empty / garbled "
+              "outputs count as incorrect regardless of contained keywords; "
+              "format checks are strict (single number, exactly three colors, "
+              "one word, yes/no)"),
              *( [f"- note: {args.note}"] if args.note else [] ),
              "",
              "## Summary", "",
@@ -384,14 +382,14 @@ def main() -> int:
              "|---|---|---|",
              f"| gated accuracy ({len(scored)} scored) | {acc_s:.1%} | {acc_m:.1%} |",
              f"| accuracy delta (MLX − source) | | {acc_m - acc_s:+.1%} |",
-             f"| anomaly rate ({len(questions)} items) "
-             f"| {anom_rate('source'):.1%} | {anom_rate('mlx'):.1%} |",
-             f"| total gen time (s) | {summary['source_timing_s'].get('total_s')} "
-             f"| {summary['mlx_timing_s'].get('total_s')} |",
+             (f"| anomaly rate ({len(questions)} items) "
+              f"| {anom_rate('source'):.1%} | {anom_rate('mlx'):.1%} |"),
+             (f"| total gen time (s) | {summary['source_timing_s'].get('total_s')} "
+              f"| {summary['mlx_timing_s'].get('total_s')} |"),
              "",
-             f"Answer agreement rate (surface form): **{agree_rate:.1%}** · "
-             f"verdict agreement on scored items: **{verdict_agree:.1%}** "
-             f"(flips: {', '.join(flips) if flips else 'none'})", "",
+             (f"Answer agreement rate (surface form): **{agree_rate:.1%}** · "
+              f"verdict agreement on scored items: **{verdict_agree:.1%}** "
+              f"(flips: {', '.join(flips) if flips else 'none'})"), "",
              "Anomaly breakdown (items affected, per type):", "",
              "| type | source | MLX |", "|---|---|---|"]
     for flag in sorted(set(summary["source_anomaly_breakdown"])
@@ -407,9 +405,9 @@ def main() -> int:
     for r in per_q:
         def mark(ok: bool, flags: list[str]) -> str:
             return ("⚠" + ",".join(flags)) if flags else ("✓" if ok else "✗")
-        lines += [f"### {r['id']} — src {mark(r['source_correct'], r['source_blocked'])}"
-                  f" / mlx {mark(r['mlx_correct'], r['mlx_blocked'])}"
-                  f" / agree {'yes' if r['agree'] else 'NO'}",
+        lines += [(f"### {r['id']} — src {mark(r['source_correct'], r['source_blocked'])}"
+                   f" / mlx {mark(r['mlx_correct'], r['mlx_blocked'])}"
+                   f" / agree {'yes' if r['agree'] else 'NO'}"),
                   f"- gold: {r['gold']}",
                   f"- source ({r['source_gen_s']}s):",
                   "```", _strip_trailing_ws(r["source_output"]) or "(empty)", "```",

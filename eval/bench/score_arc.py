@@ -210,14 +210,14 @@ def main() -> int:
         json.dumps(result, ensure_ascii=False, indent=2) + "\n")
 
     lines = [f"# {args.title}", "",
-             f"Protocol evidence: {len(raw_sides)} side(s) × "
-             f"{len(next(iter(raw_sides.values())))} questions, identical "
-             f"question coverage, answer keys, prompt hashes; recorded "
-             f"temp {temp:g}, max_tokens {max_tokens}.", "",
-             f"Gate: candidate clean accuracy ≥ source − "
-             f"{GATE_CLEAN_ACCURACY_PP:g} pp AND anomaly rate ≤ source + "
-             f"{GATE_ANOMALY_PP:g} pp. Failing candidates are experimental "
-             f"results, never recommended configurations.", "",
+             (f"Protocol evidence: {len(raw_sides)} side(s) × "
+              f"{len(next(iter(raw_sides.values())))} questions, identical "
+              f"question coverage, answer keys, prompt hashes; recorded "
+              f"temp {temp:g}, max_tokens {max_tokens}."), "",
+             (f"Gate: candidate clean accuracy ≥ source − "
+              f"{GATE_CLEAN_ACCURACY_PP:g} pp AND anomaly rate ≤ source + "
+              f"{GATE_ANOMALY_PP:g} pp. Failing candidates are experimental "
+              f"results, never recommended configurations."), "",
              "| side | accuracy | clean accuracy | anomaly rate | letter-only | median gen (s) | size | conv RSS | conv time | verdict |",
              "|---|---|---|---|---|---|---|---|---|---|"]
     for name, s in sides.items():

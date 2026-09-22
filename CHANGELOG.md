@@ -5,6 +5,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### End-to-end case study: Nyx-RP-9B (2026-09-22)
+
+- Re-converted `Nyx-RP-9B-Instruct-2608-v1.Q4_K_M.gguf` (9.2B Qwen3.5
+  hybrid) with `--bits auto` → MLX affine 4-bit: 4.69 GiB / 2 shards /
+  149 s / peak RSS 9.56 GiB, verify ALL OK (427 numeric / 427 shape /
+  927 finite).
+- Source-vs-MLX capability evaluation (45-question set, temp 0, recorded
+  params, strict anomaly gating) committed at
+  `eval/reports/nyx9b-q4km/`: gated accuracy 65.0% (source, llama.cpp
+  0.4.1) vs 60.0% (MLX), verdict agreement 85%, throughput 31.2 vs
+  31.8 tok/s (Apple M4 Pro). The −5 pp delta is anomaly-gating-driven at
+  the shared 1536-token thinking budget, not knowledge loss.
+- README restructured: Quickstart moved to the top, validation evidence
+  ordered from the newest end-to-end case study down to the unit-level
+  proofs.
+
 ### Phase-1 closing (mainline consolidation)
 
 - **`--bits auto` policy finalized to same-bit conversion**: the MLX target

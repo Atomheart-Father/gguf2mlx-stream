@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from arc_subset import extract_letter, verify_saved  # noqa: E402
+from arc_subset import extract_letter, verify_saved
 
 LLAMA_PERF_RE = {
     "load_s": re.compile(r"load time\s*=\s*([0-9.]+)\s*ms"),
@@ -51,7 +51,7 @@ def is_repetition(text: str) -> bool:
 
 def run_mlx(model_path: Path, subset_path: Path, out_path: Path,
             max_tokens: int, limit: int | None) -> None:
-    from mlx_lm import load, generate
+    from mlx_lm import generate, load
     from mlx_lm.sample_utils import make_sampler
 
     items = [json.loads(line) for line in subset_path.read_text().splitlines() if line.strip()]
@@ -93,7 +93,7 @@ def run_llamacpp(gguf: Path, subset_path: Path, out_path: Path,
                    "--temp", "0", "-ngl", "99", "-p", item["prompt"]]
             t1 = time.time()
             proc = subprocess.run(cmd, capture_output=True, text=True,
-                                  stdin=subprocess.DEVNULL)
+                                  stdin=subprocess.DEVNULL, check=False)
             gen_s = time.time() - t1
             runs = None
             for line in proc.stderr.splitlines():

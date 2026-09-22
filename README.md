@@ -16,30 +16,64 @@ from mlx_lm import load
 model, tokenizer = load("./my-model-mlx-4bit")   # standard MLX-LM output
 ```
 
-## Practical guidance (read this first)
+## Quickstart
 
-* GGUF → MLX **streaming conversion is supported** for the architectures
-  listed below, with **bounded-memory, chunked conversion** — a complete
-  FP16/BF16 checkpoint is never materialized.
-* `--bits auto` (the default) picks the MLX bit magnitude matching the
-  source GGUF's byte-dominant quant family: **IQ2/Q2 → 2, IQ3/Q3 → 3,
-  IQ4/Q4 → 4, Q6 → 6, Q8 → 8**. An explicit `--bits` always wins.
-* **4-bit or higher is recommended for practical model quality.**
-* **3-bit is supported but can cause substantial quality degradation.**
-  Converting an auto-derived 3-bit target works out of the box and prints a
-  fidelity warning; the evidence behind that warning is summarized in
-  [Validation / Quantization Fidelity](#validation--quantization-fidelity)
-  below.
-* GGUF quantization and MLX affine quantization are **different encodings**:
-  "same-bit" means the same bit *magnitude*, **not** bit-for-bit equivalent
-  weights. This project does not claim lossless quantized conversion.
+```bash
+pip install gguf2mlx-stream            # wheel: the five official configs are built in
+pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
+
+# list the built-in architecture configs shipped with the package
+gguf2mlx-stream list-configs
+
+# inspect a GGUF (metadata + tensor inventory)
+gguf2mlx-stream inspect ~/models/qwen.gguf --tensors
+
+# compile the conversion plan without touching tensor data (dry-run/plan view)
+gguf2mlx-stream convert ~/models/qwen.gguf --arch-config qwen3_5 --dry-run
+
+# convert (bounded memory; transactional output; standard MLX-LM dir)
+gguf2mlx-stream convert ~/models/qwen.gguf \
+  --arch-config qwen3_5 \
+  --output ./my-model-mlx-6bit \
+  --bits 6 --group-size 64 --mode affine \
+  --source-config ~/models/qwen-hf/config.json \
+  --tokenizer-source ~/models/qwen-hf
+
+# verify output against source: every quantized tensor is numerically
+# recomputed and compared; shapes, finiteness, index/shard parity, and the
+# output's recorded quantization parameters are all checked
+gguf2mlx-stream verify ~/models/qwen.gguf ./my-model-mlx-6bit \
+  --arch-config qwen3_5 --bits 6
+```
+
+`--arch-config` accepts a built-in config name (no clone needed), a YAML
+path, or nothing at all — when omitted, the config is auto-detected from the
+GGUF's `general.architecture` if exactly one built-in config accepts it.
+`--dry-run` prints the full plan (every job, drop, and estimate) so mapping
+mistakes are caught before any weights move.
+
+A conversion fails transactionally — never replacing an existing output —
+when the tokenizer source cannot supply a loadable tokenizer
+(`tokenizer.json` or `tokenizer.model`, plus `tokenizer_config.json`).
+
+### Key facts
+
+* **Target bits (`--bits auto`, the default)**: the MLX bit magnitude
+  matches the source GGUF's byte-dominant quant family — **IQ2/Q2 → 2,
+  IQ3/Q3 → 3, IQ4/Q4 → 4, Q6 → 6, Q8 → 8**. An explicit `--bits` always
+  wins. See [Target quantization](#target-quantization---bits-auto).
+* **4-bit or higher is recommended for practical model quality.** 3-bit
+  converts fine but prints a fidelity warning; the evidence is in
+  [Validation & fidelity](#validation--fidelity).
+* **"Same bit" ≠ same encoding.** GGUF k-quants and MLX affine quantization
+  are different encodings; the transcoder reproduces the same bit
+  *magnitude*, not bit-for-bit equivalent weights. No lossless claim is
+  made for the quantized path.
 * What *is* proven exact is the **unquantized path**: BF16 GGUF → BF16 MLX
   was verified tensor-identical (after float16 normalization) against
-  official exports on two architectures — see the validation section.
+  official exports on two architectures.
 
----
-
-## Why this exists
+## Why: bounded memory
 
 The naive conversion path — load the whole GGUF dequantized to
 FP16/BF16, then quantize to MLX — needs roughly:
@@ -66,6 +100,13 @@ safetensors shard (flushed at a size limit)
         ↓  release
 ```
 
+Memory is bounded by the largest single tensor (dequantized float32) plus
+the current shard buffer (~`max_shard_bytes`, default 4 GiB). Huge
+vocab-embedding jobs are processed in row chunks (`--chunk-mb`, default
+512 MiB of float32 per chunk) — only for pipelines whose operators are
+elementwise (chunk-safe) and slice-free. Peak RSS includes the mmap'd
+source file's page cache, which the OS can evict; it is not "live" memory.
+
 ## Supported architectures
 
 | family | config | highlights |
@@ -79,10 +120,80 @@ safetensors shard (flushed at a size limit)
 Configs are data: matching, transforms, and output metadata are declared in
 YAML and compiled into a validated plan. See docs/CONFIG_SPEC.md.
 
-## Integration evidence
+## Target quantization (`--bits auto`)
 
-Release validation ran the full stage pipeline for **8 real-GGUF
-conversions (4 families × Q4_K_M + Q6_K), all PASS**:
+`--bits` defaults to `auto`: the target bit magnitude is derived from a
+byte-weighted histogram of the source quantization families over the tensors
+the plan will quantize, and the evidence (histogram, dominant type, reason)
+is recorded in the dry-run view, `--report-json`, and the output
+`config.json` under `quantization_selection`. The MLX output is one global
+bit magnitude plus the config's declared per-rule overrides — mixed source
+quantization is not replicated per tensor, and an unmappable dominant family
+(Q5/IQ1/TQ) refuses to convert rather than guessing.
+
+When `auto` resolves to 3 bits, a fidelity warning is printed to stderr and
+recorded in the output `config.json`
+(`quantization_selection.fidelity_warning`); the conversion itself proceeds:
+
+> MLX affine 3-bit conversion is supported, but our paired-oracle
+> experiments show substantial fidelity degradation at 3-bit. The
+> degradation is primarily attributable to the MLX affine 3-bit quantization
+> grid rather than the GGUF→MLX transcoder. For practical model quality,
+> 4-bit or higher is recommended.
+
+## Validation & fidelity
+
+Three separate questions are validated with separate evidence — do not
+conflate them: the unquantized path is proven exact; the quantized path is
+numerically equivalent to mlx-lm but inherits the fidelity of the target
+grid, and our paired-oracle experiments observed a strong 3-bit cliff.
+
+### 1. End-to-end case study: Nyx-RP-9B-Instruct (9.2B, hybrid GDN)
+
+A real 9B production-style model (Qwen3.5 architecture, 33 blocks, GDN +
+full attention, 248320 vocab), converted from its official
+Q4_K_M GGUF with `--bits auto` → **MLX affine 4-bit**:
+
+| conversion | value |
+|---|---|
+| output | 4.69 GiB, 2 shards, 427 tensors |
+| convert time / peak RSS | 149 s / **9.56 GiB** (Apple M4 Pro, 24 GB) |
+| verify | **ALL OK** (427 numeric, 427 shape, 927 finite) |
+
+Both sides evaluated over the 45-question capability set
+(`eval/questions.json`: zh/en common sense, math, logic, instruction, open),
+identical protocol: temp 0, max_tokens 1536, single user turn, thinking
+enabled by template default, strict anomaly gating (truncation /
+repetition-loop / empty / garbled ⇒ incorrect). Full report:
+[eval/reports/nyx9b-q4km/](eval/reports/nyx9b-q4km/report.md).
+
+| metric | source GGUF (llama.cpp 0.4.1) | converted MLX (4-bit) |
+|---|---|---|
+| gated accuracy (40 scored) | **65.0%** | 60.0% (−5 pp) |
+| verdict agreement (of 40 scored) | — | 85.0% (6 flips) |
+| anomaly rate (45 items) | 15.6% | 31.1% |
+| generation throughput | 31.2 tok/s | 31.8 tok/s |
+| model load | ~1.3 s | ~1.2 s |
+
+Reading of the result, stated as observed evidence:
+
+* **Knowledge is preserved**: per-category agreement is strong
+  (en_common 8/10 = 8/10, instruction 4/5 = 4/5, math 1/10 = 1/10 — that
+  category is hard for the *source* too); 85% of scored items get the same
+  verdict on both sides.
+* The −5 pp delta is **anomaly-gating-driven, not knowledge-driven**: this
+  thinking model fills the shared 1536-token budget (both sides truncate;
+  MLX more often, 14 vs 6) and loses 4 flips to truncation/repetition-loop
+  gating on answers whose content was actually correct — while also
+  *winning* 2 flips where the source thought past its budget and never
+  answered.
+* Surface-form agreement is low (24%) because both runtimes paraphrase
+  freely; verdict-level agreement (85%) is the meaningful measure.
+
+### 2. Release integration matrix (small pinned models)
+
+Full stage pipeline for **8 real-GGUF conversions (4 families × Q4_K_M +
+Q6_K), all PASS**:
 
 ```
 convert → structural checks → verify → mlx_lm.load → chat generation (temp 0)
@@ -113,34 +224,18 @@ committed). Peak RSS includes the mmap'd source page
 cache, which the OS can evict. See docs/TESTING.md for how the matrix is
 reproduced.
 
-Additional large-model regression (`qwen35moe`, run outside the pinned
-matrix): JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention
-+ 256-expert MoE). **The historical 4-bit conversion below is superseded
-history — it used the wrong target for an IQ3-dominant source and is not a
-recommended result:**
+Additional large-model regression (`qwen35moe`, outside the pinned matrix):
+JoyFox Qwen3.6-35B-A3B-RP-Aggressive (hybrid GDN + full attention +
+256-expert MoE). The current conversion of its IQ3_M source is the
+**3-bit `--bits auto` run** (14.14 GiB / 4 shards, verify ALL OK) — its
+capability-gate result was **FAIL** for that source class (see §5), which is
+the evidence behind the 3-bit warning. An earlier 4-bit conversion of the
+same source was performed with a manually forced target and is kept only as
+a superseded historical record in git history; it exercised N-D (3-D expert)
+quantization with chunk-safe streaming and per-rule 8-bit overrides for the
+MoE router and shared-expert gate.
 
-| source GiB | output GiB (shards) | peak RSS GiB | convert s | verify |
-|---|---|---|---|---|
-| 14.72 | 18.17 (5) | 16.48 | 428 | ALL OK (733 numeric / 733 shape / 1757 finite) |
-
-That run exercised N-D (3-D expert) quantization with chunk-safe streaming
-and config-declared per-rule 8-bit overrides for the MoE router and
-shared-expert gate, and loaded/produced coherent chat generations.
-
-The current conversion of this source is the **3-bit `--bits auto` run**
-(14.14 GiB / 4 shards, verify ALL OK). Its capability-gate result was
-**FAIL** for that source class (see `eval/bench/results/`). Converting
-IQ3/Q3 sources with `--bits auto` therefore emits a fidelity warning
-(today) — the conversion itself proceeds; see the section below.
-
-## Validation / Quantization Fidelity
-
-Three separate questions are validated with separate evidence. **Do not
-conflate them:** the unquantized path is proven exact; the quantized path is
-numerically equivalent to mlx-lm but inherits the fidelity of the target
-grid, and our paired-oracle experiments observed a strong 3-bit cliff.
-
-### 1. Converter correctness — BF16 paired-oracle proofs
+### 3. Converter correctness — BF16 paired-oracle proofs
 
 Method: convert the *same pinned BF16 GGUF* the official MLX export was
 built from, compare every tensor (`research/paired_oracle/compare_bf16.py`).
@@ -162,7 +257,7 @@ converter is text-only by design.
 differences are attributable to quantization, not to conversion.**
 Details: [research/paired_oracle/REPORT_BF16_ORACLE.md](research/paired_oracle/REPORT_BF16_ORACLE.md).
 
-### 2. Quantizer equivalence with mlx-lm
+### 4. Quantizer equivalence with mlx-lm
 
 Converting the pinned BF16 GGUF at uniform 3-bit reproduces the *official
 MLX 3-bit* per-module error profile to **4+ significant digits** (e.g.
@@ -173,7 +268,7 @@ Requantizing an existing Q3_K_M GGUF to MLX 3-bit ("double quantization")
 adds +6%…+13.5% per-module error, but behaviorally only **+0.03 nats/token**
 — the 3-bit *grid* loses the same information either way.
 
-### 3. 3-bit fidelity findings (paired-oracle calibration, Qwen3.5-0.8B)
+### 5. 3-bit fidelity findings (paired-oracle calibration, Qwen3.5-0.8B)
 
 All candidates built from the same Q3_K_M GGUF (except the BF16→3-bit
 control); reference = official instruct BF16 (NLL 3.1375, ARC letter 41%).
@@ -196,7 +291,7 @@ universal claim about every model):
 * **A strong fidelity cliff at 3-bit**: ≈ +1.0 nat/token (≈ 2.8× perplexity)
   regardless of whether the source is BF16 or Q3_K_M.
 * The cliff is **primarily attributable to the MLX affine 3-bit grid**, not
-  to double quantization (+0.03 nats) and not to the transcoder (§1, §2).
+  to double quantization (+0.03 nats) and not to the transcoder (§3, §4).
 * **Every 3-bit-containing profile tested is Pareto-dominated by plain
   4-bit** — mixed 3/6 spends more bytes than uniform 4-bit and is still
   3.2× worse in KL.
@@ -205,16 +300,7 @@ universal claim about every model):
   same-weights-different-format and confirms the thesis from the other
   side: low-bit fidelity comes from grid-aligned QAT, not from PTQ.
 
-Because of this evidence, `--bits auto` for IQ3/Q3 sources prints the
-following warning while still converting:
-
-> MLX affine 3-bit conversion is supported, but our paired-oracle
-> experiments show substantial fidelity degradation at 3-bit. The
-> degradation is primarily attributable to the MLX affine 3-bit quantization
-> grid rather than the GGUF→MLX transcoder. For practical model quality,
-> 4-bit or higher is recommended.
-
-### 4. Generation-based capability gates (earlier experiments)
+### 6. Generation-based capability gates (earlier experiments)
 
 ARC-Challenge-100 strict gate on converted outputs (recorded params,
 hash-verified prompts; full reports in `eval/reports/` and
@@ -233,9 +319,7 @@ Llama-3.2-1B-Instruct (Q4_K_M source), same source at several targets:
 
 Qwen3.6-35B-A3B (IQ3_M source) at `--bits auto` → 3-bit: source 90.0% vs
 3-bit clean accuracy 55.0% (anomaly rate 41% vs 5%) — **FAIL**; the same
-source at 4-bit/6-bit passes. All four Q4_K_M/Q6_K families in the
-integration matrix above (§ "Integration evidence") load, generate coherently,
-and serve through oMLX.
+source at 4-bit/6-bit passes.
 
 ### Where the raw data lives
 
@@ -249,111 +333,22 @@ and serve through oMLX.
 * Reproduce the converter-vs-official comparisons with the tools in
   `research/paired_oracle/` (`manifest.py` pins every revision + sha256).
 
-## Scope boundaries
+## Scope & limitations
 
 * **One source GGUF per conversion.** Tokenizer files and reference-config
   augmentation come from a single declared sibling source directory
-  (`--source-config` / `--tokenizer-source`). No multi-source merging is
-  performed or planned.
+  (`--source-config` / `--tokenizer-source`, default: the GGUF's own
+  directory). No multi-source merging is performed or planned.
+* **GGUF → MLX only** (no reverse direction yet). Tokenizer files are
+  copied from a source directory; GGUF-embedded vocabularies are not
+  rebuilt into `tokenizer.json`.
+* Conv1d/Norm etc. non-quantized outputs are float32 (float16 opt-in per
+  rule). One tensor is never split across shards; a single tensor larger
+  than the shard limit still lands in its own shard.
 * **Qwen3.8 is not a supported or claimed target.** No Qwen3.8 config
   exists and none is implied. Qwen3.5-architecture distills (e.g. 2B-class)
   may convert via the `qwen3_5` config; that is a compatibility item to
   verify per model, not a claim.
-
-## Quickstart
-
-```bash
-pip install gguf2mlx-stream            # wheel: the five official configs are built in
-pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
-
-# list the built-in architecture configs shipped with the package
-gguf2mlx-stream list-configs
-
-# optional: fetch the pinned small integration GGUFs + tokenizers (network)
-python scripts/fetch_integration_models.py
-
-# inspect a GGUF (metadata + tensor inventory)
-gguf2mlx-stream inspect ~/models/qwen.gguf --tensors
-
-# compile the conversion plan without touching tensor data (dry-run/plan view)
-gguf2mlx-stream convert ~/models/qwen.gguf --arch-config qwen3_5 --dry-run
-
-# convert (bounded memory; transactional output; standard MLX-LM dir)
-gguf2mlx-stream convert ~/models/qwen.gguf \
-  --arch-config qwen3_5 \
-  --output ./my-model-mlx-6bit \
-  --bits 6 --group-size 64 --mode affine \
-  --source-config ~/models/qwen-hf/config.json \
-  --tokenizer-source ~/models/qwen-hf
-
-# convert with target-bits auto-selection (the default): the byte-weighted
-# dominant source quant family picks the global MLX bit magnitude
-# (IQ2->2, IQ3->3, IQ4/Q4->4, Q6->6, Q8->8); sources whose dominant family
-# has no MLX affine equivalent (Q5/IQ1/TQ) fail with an explicit error.
-# An auto-derived 3-bit target prints a fidelity warning and still converts.
-gguf2mlx-stream convert ~/models/iq3-model.gguf --output ./out-3bit-auto
-
-# verify output against source: every quantized tensor is numerically
-# recomputed and compared; shapes, finiteness, index/shard parity, and the
-# output's recorded quantization parameters are all checked
-gguf2mlx-stream verify ~/models/qwen.gguf ./my-model-mlx-6bit \
-  --arch-config qwen3_5 --bits 6
-```
-
-`--arch-config` accepts a built-in config name (no clone needed), a YAML
-path, or nothing at all — when omitted, the config is auto-detected from the
-GGUF's `general.architecture` if exactly one built-in config accepts it.
-`--dry-run` prints the full plan (every job, drop, and estimate) so mapping
-mistakes are caught before any weights move.
-
-`--bits` defaults to `auto`: the target bit magnitude is derived from a
-byte-weighted histogram of the source quantization families over the tensors
-the plan will quantize, and the evidence (histogram, dominant type, reason)
-is recorded in the dry-run view, `--report-json`, and the output
-`config.json` under `quantization_selection`. The MLX output is one global
-bit magnitude plus the config's declared per-rule overrides — mixed source
-quantization is not replicated per tensor, and an unmappable dominant family
-refuses to convert rather than guessing. Note that "source IQ3" and "MLX
-affine 3-bit" are the same *target bit magnitude*, not bit-for-bit
-equivalent encodings. When `auto` resolves to 3 bits, a fidelity warning is
-printed to stderr and recorded in the output `config.json`
-(`quantization_selection.fidelity_warning`); the conversion itself proceeds —
-see [Validation / Quantization Fidelity](#validation--quantization-fidelity).
-
-The output contract is `mlx_lm.load(path)`. A conversion fails
-transactionally — never replacing an existing output — when the tokenizer
-source cannot supply a loadable tokenizer (`tokenizer.json` or
-`tokenizer.model`, plus `tokenizer_config.json`).
-
-## The non-negotiable memory rule
-
-Never implement the primary conversion path as
-`GGUF → complete FP16/BF16 checkpoint → MLX quantization`. The pipeline is
-always:
-
-```
-read quantized GGUF tensor/chunk → bounded dequantization → transform
-→ MLX quantize → write shard → release
-```
-
-## Memory expectations
-
-* Bounded by the largest single tensor (dequantized float32) plus the
-  current shard buffer (~`max_shard_bytes`, default 4 GiB).
-* Huge vocab-embedding jobs are processed in row chunks (`--chunk-mb`,
-  default 512 MiB of float32 per chunk) — only for pipelines whose
-  operators are elementwise (chunk-safe) and slice-free.
-* Peak RSS includes the mmap'd source file's page cache, which the OS can
-  evict; it is not "live" memory.
-
-## Limitations
-
-* GGUF → MLX only (no reverse direction yet).
-* Tokenizer files are copied from a source directory; GGUF-embedded
-  vocabularies are not rebuilt into `tokenizer.json`.
-* Conv1d/Norm etc. non-quantized outputs are float32 (float16 opt-in per rule).
-* One tensor is never split across shards; a single tensor larger than the
-  shard limit still lands in its own shard.
 * llama.cpp (`llama-completion`) is an *optional* external semantic
   cross-check — this tool never requires it.
 * No canonical public repository URL is advertised yet; the project is
@@ -366,6 +361,11 @@ pip install -e '.[dev]'
 python -m pytest tests/ -q    # unit + oracle + synthetic pipeline + structural parity
 ruff check src tests scripts
 ```
+
+Test levels: unit tests on tiny synthetic tensors, a synthetic
+`read → plan → transform → quantize → shard write → reload` pipeline test,
+asset-gated local integration tests (skipped without local models), and a
+documentation/testing matrix in docs/TESTING.md.
 
 ## License
 
