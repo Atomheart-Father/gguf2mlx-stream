@@ -129,5 +129,52 @@ weights to the target grid (QAT), not from smarter PTQ.
    two architectures; quantized output numerically equivalent to mlx-lm's
    on the same weights.
 
-Raw reports (JSON/MD), profiles and the pinned manifest live in the oracle
-cache (`GGUF2MLX_ORACLE_CACHE`); dataset text is not committed.
+## Reproduction
+
+Headline numbers are committed machine-readably in `results_summary.json`
+(transcribed from this report). Weights and dataset text are never
+committed; rebuild the pinned cache (16 assets, HF revisions pinned in
+`manifest.py`, local Q3_K_M derived from the pinned BF16 source):
+
+```bash
+python -m research.paired_oracle.manifest build  --cache <cache>
+python -m research.paired_oracle.manifest verify --cache <cache> --strict
+
+# local Q3_K_M from the pinned BF16 GGUF (shares weights with the baseline)
+llama-quantize <cache>/gguf/ggml-org-qwen35-0.8b-bf16/<file>.gguf \
+    <cache>/gguf/ggml-org-qwen35-0.8b-q3_k_m/qwen35-0.8b-q3_k_m.gguf Q3_K_M
+```
+
+Then the three analysis stages:
+
+```bash
+# 1. level-1 calibration: teacher-forced NLL/KL + ARC letter subset
+python -m research.paired_oracle.calib_ll \
+    --reference <cache>/mlx/qwen35-0.8b-instruct-bf16 \
+    --candidates <out>/uniform-3-g64 <out>/mixed_3_4_official_g64 ... \
+    --corpus <corpus> --arc-subset <arc100.jsonl> \
+    --report <out>/calib.json --window 512 --windows 32
+
+# 2. BF16 converter-semantics audit (ours vs official)
+python -m research.paired_oracle.compare_bf16 \
+    --ours <out>/qwen35-0.8b-bf16-ours \
+    --reference <cache>/mlx/qwen35-0.8b-instruct-bf16 \
+    --report <out>/bf16-audit.json --config-report
+
+# 3. per-module error attribution / double-quantization cost
+python -m research.paired_oracle.error_attribution \
+    --quantized <out>/uniform-3-g64 --bf16 <cache>/mlx/qwen35-0.8b-instruct-bf16 \
+    --report <out>/error.json
+```
+
+Candidate outputs are produced by converting the cache GGUFs with the
+profiles in `profiles/` (`profile_extract.py` reproduces the "official
+mixed_3_x" profile shapes from the reference repos).
+
+**Recorded versions and known gaps.** The original Q3_K_M derivation did
+not record the `llama-quantize` build — a reproducibility gap now
+documented here. The Homebrew llama.cpp on the study host re-reports
+`0.4.1 (build 10964, commit b29c606e2)` as of 2026-09-22; pin the build in
+`manifest.json` when re-deriving. The per-candidate calibration JSONs of
+the original run were not committed, and the local oracle cache has since
+been deleted; the commands above regenerate all raw evidence.

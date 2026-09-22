@@ -5,6 +5,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Review corrections (2026-09-22)
+
+- **Eval scoring**: two questions (`zh-cs-02`, `en-cs-02`) accepted only one
+  spelling of a correct answer, so a verbose-but-correct answer failed the
+  strict single-number check while a short one passed (asymmetric verdicts
+  in the Nyx and Llama-3.2-1B reports). Both checks now accept equivalent
+  correct answers; `eval/score_eval.py` gains a `--rescore-report` mode that
+  recomputes verdicts offline from the embedded per-item outputs without
+  re-running models, recording a `rescoring` provenance block with the
+  previous metrics. All committed reports were rescored: Nyx 67.5%→**70.0%**
+  (source) vs 60.0% (MLX), verdict agreement **90.0%** with **4 flips, all
+  MLX-side truncation/repetition-loop blocks**; Llama-3.2-1B 42.5%→45.0% /
+  45.0%→47.5%; the superseded JoyFox pair 60.0%→62.5% (MLX).
+- **Quant profiles**: `default.group_size` was parsed and recorded but never
+  applied — conversion used the CLI group size (64) even when a profile
+  declared another default. `resolve_default_group_size()` now resolves it
+  (profile default applied when the flag is absent, explicit conflict
+  rejected), and the effective value lands in the output `config.json`.
+- **3-bit fidelity warning** now states the observed capability-gate cost
+  (ARC clean accuracy 48%→29–31% on the 1B calibration; 90%→55% on
+  Qwen3.6-35B-A3B) instead of a generic degradation claim.
+- **Docs evidence fixes**: README and `eval/bench/results/FINAL_REPORT.md`
+  no longer imply 4/6-bit ARC gate passes for the JoyFox 35B source (those
+  rows are the Llama-3.2-1B calibration; JoyFox has 3-bit gate evidence
+  only). README Quickstart installs from the GitHub source (no PyPI release
+  exists yet).
+- **Reproducibility**: `research/paired_oracle/results_summary.json`
+  (machine-readable headline numbers) and a Reproduction section in
+  `REPORT_PAIRED_ORACLE.md` with exact commands; the unrecorded
+  `llama-quantize` build for the local Q3_K_M derivation is documented as a
+  known gap (host toolchain re-checks as 0.4.1 / build 10964 / b29c606e2).
+
 ### End-to-end case study: Nyx-RP-9B (2026-09-22)
 
 - Re-converted `Nyx-RP-9B-Instruct-2608-v1.Q4_K_M.gguf` (9.2B Qwen3.5
@@ -13,10 +45,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   927 finite).
 - Source-vs-MLX capability evaluation (45-question set, temp 0, recorded
   params, strict anomaly gating) committed at
-  `eval/reports/nyx9b-q4km/`: gated accuracy 65.0% (source, llama.cpp
-  0.4.1) vs 60.0% (MLX), verdict agreement 85%, throughput 31.2 vs
-  31.8 tok/s (Apple M4 Pro). The −5 pp delta is anomaly-gating-driven at
-  the shared 1536-token thinking budget, not knowledge loss.
+  `eval/reports/nyx9b-q4km/`: gated accuracy **70.0%** (source, llama.cpp
+  0.4.1) vs 60.0% (MLX) after the review-correction rescoring, verdict
+  agreement 90%, throughput 31.2 vs 31.8 tok/s (Apple M4 Pro). The −10 pp
+  delta is anomaly-gating-driven at the shared 1536-token thinking budget,
+  not knowledge loss.
 - README restructured: Quickstart moved to the top, validation evidence
   ordered from the newest end-to-end case study down to the unit-level
   proofs.

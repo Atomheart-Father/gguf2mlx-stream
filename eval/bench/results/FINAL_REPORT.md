@@ -5,6 +5,16 @@
 > `--allow-experimental` were replaced by a non-blocking fidelity warning
 > (same-bit auto converts and warns; see README "Validation / Quantization
 > Fidelity"). The measured results and gate verdicts are unchanged history.
+>
+> **Evidence correction (2026-09-22):** earlier wording implied 4-bit and
+> 6-bit targets of the *JoyFox 35B* source passed the ARC gate. They were
+> never gate-tested on that model: the 4/6-bit PASS rows below come from the
+> Llama-3.2-1B small-model calibration and are not evidence for the 35B
+> source. The 35B source has 3-bit gate evidence only. The 45-item
+> capability pair has also been rescored offline under amended
+> equivalent-answer checks (see its report `rescoring` block): gated
+> accuracy is now 67.5% (source) vs 62.5% (MLX), superseded-history status
+> unchanged.
 
 ## Decision
 
@@ -19,8 +29,9 @@ generation) — but every measured capability gate refuses to bless it:
   `--allow-experimental`;
 - IQ3 → 3 remains an **explicit experimental option**, not a default
   recommendation, until a calibrated configuration passes the gate;
-- 4-bit and 6-bit targets of the same source **pass** the gate and remain
-  the sane defaults.
+- 4-bit and 6-bit targets pass the gate on the small-model calibration
+  (Llama-3.2-1B); for the JoyFox 35B source only the 3-bit target has ever
+  been gate-tested, so no 4/6-bit claim is made for it.
 
 ## Conversion mechanics (JoyFox Qwen3.6-35B-A3B, i1-IQ3_M, `--bits auto` → 3)
 
@@ -64,6 +75,9 @@ Same source converted at bits=3 with group sizes 32/64/128
 | 4-bit g64 (reference) | 47.0% | 1.0% | PASS |
 | 6-bit g64 (reference) | 55.0% | 0.0% | PASS |
 
+These 4/6-bit reference rows are this *Llama-3.2-1B* source — the model
+this section calibrates — not JoyFox; do not cite them as JoyFox results.
+
 **No 3-bit group size passes the clean-accuracy/anomaly gate** — finer
 groups (g32) reduce the loop anomalies but do not recover the accuracy
 deficit. Per the promotion rule, no JoyFox rerun with an alternative group
@@ -72,7 +86,8 @@ size is warranted: the gate stays failed for the source class.
 ### 3. Capability question set, 45 items, strict gate (chat protocol)
 
 The published 35B pair is **superseded history** (its MLX side was the
-deleted 4-bit baseline): gated accuracy 67.5% vs 60.0%, MLX anomaly rate
+deleted 4-bit baseline): gated accuracy 67.5% vs 62.5% (rescored
+2026-09-22 under the amended equivalent-answer checks), MLX anomaly rate
 13.3% — basic-question keyword accuracy showed no drop, but this is
 explicitly **not** a "no capability loss" result.
 
@@ -92,6 +107,7 @@ explicitly **not** a "no capability loss" result.
 A configuration that passes the gate on this protocol: clean accuracy
 ≥ source − 5 pp AND anomaly rate ≤ source + 2 pp on ARC-100, on both the
 small-model calibration and the target model. Candidates: other target
-bit magnitudes (4/6 pass today), different quantization modes, or a
-chat-protocol benchmark for thinking models (raw completion penalizes
-open-ended thinking continuation on both sides asymmetrically).
+bit magnitudes (4/6 pass today on the Llama-3.2-1B calibration; untested
+for JoyFox), different quantization modes, or a chat-protocol benchmark
+for thinking models (raw completion penalizes open-ended thinking
+continuation on both sides asymmetrically).

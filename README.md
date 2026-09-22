@@ -19,7 +19,7 @@ model, tokenizer = load("./my-model-mlx-4bit")   # standard MLX-LM output
 ## Quickstart
 
 ```bash
-pip install gguf2mlx-stream            # wheel: the five official configs are built in
+pip install git+https://github.com/Atomheart-Father/gguf2mlx-stream.git
 pip install -e '.[loadtest]'           # source checkout + mlx-lm for the load/generation contract
 
 # list the built-in architecture configs shipped with the package
@@ -138,8 +138,11 @@ recorded in the output `config.json`
 > MLX affine 3-bit conversion is supported, but our paired-oracle
 > experiments show substantial fidelity degradation at 3-bit. The
 > degradation is primarily attributable to the MLX affine 3-bit quantization
-> grid rather than the GGUF→MLX transcoder. For practical model quality,
-> 4-bit or higher is recommended.
+> grid rather than the GGUF→MLX transcoder. Observed capability-gate cost
+> on same-weight calibrations: ARC-Challenge clean accuracy 48% → 29–31%
+> (Llama-3.2-1B) and 90% → 55% (Qwen3.6-35B-A3B), with anomaly rates rising
+> on thinking-model protocols. For practical model quality, 4-bit or higher
+> is recommended.
 
 ## Validation & fidelity
 
@@ -165,12 +168,16 @@ Both sides evaluated over the 45-question capability set
 identical protocol: temp 0, max_tokens 1536, single user turn, thinking
 enabled by template default, strict anomaly gating (truncation /
 repetition-loop / empty / garbled ⇒ incorrect). Full report:
-[eval/reports/nyx9b-q4km/](eval/reports/nyx9b-q4km/report.md).
+[eval/reports/nyx9b-q4km/](eval/reports/nyx9b-q4km/report.md). The report
+was rescored offline on 2026-09-22 under amended equivalent-answer checks
+(two questions accepted only one spelling of a correct answer before);
+`report.json` carries a `rescoring` provenance block with the previous
+metrics.
 
 | metric | source GGUF (llama.cpp 0.4.1) | converted MLX (4-bit) |
 |---|---|---|
-| gated accuracy (40 scored) | **65.0%** | 60.0% (−5 pp) |
-| verdict agreement (of 40 scored) | — | 85.0% (6 flips) |
+| gated accuracy (40 scored) | **70.0%** | 60.0% (−10 pp) |
+| verdict agreement (of 40 scored) | — | 90.0% (4 flips) |
 | anomaly rate (45 items) | 15.6% | 31.1% |
 | generation throughput | 31.2 tok/s | 31.8 tok/s |
 | model load | ~1.3 s | ~1.2 s |
@@ -178,17 +185,18 @@ repetition-loop / empty / garbled ⇒ incorrect). Full report:
 Reading of the result, stated as observed evidence:
 
 * **Knowledge is preserved**: per-category agreement is strong
-  (en_common 8/10 = 8/10, instruction 4/5 = 4/5, math 1/10 = 1/10 — that
-  category is hard for the *source* too); 85% of scored items get the same
-  verdict on both sides.
-* The −5 pp delta is **anomaly-gating-driven, not knowledge-driven**: this
+  (zh_common 10/10 = 8/10, en_common 9/10 = 8/10, instruction 4/5 = 4/5;
+  math is 1/10 = 1/10 because the strict single-number format check
+  rejects step-by-step explanations on both sides equally — that category
+  has no verdict flips); 90% of scored items get the same verdict.
+* The −10 pp delta is **anomaly-gating-driven, not knowledge-driven**: this
   thinking model fills the shared 1536-token budget (both sides truncate;
-  MLX more often, 14 vs 6) and loses 4 flips to truncation/repetition-loop
-  gating on answers whose content was actually correct — while also
-  *winning* 2 flips where the source thought past its budget and never
-  answered.
+  MLX more often, 14 vs 6) and **all 4 remaining flips are MLX-side
+  truncation / repetition-loop blocks on answers whose post-`</think>` content
+  was correct** — the source answered all four correctly. No remaining flip
+  is a case of the source being wrong and MLX right.
 * Surface-form agreement is low (24%) because both runtimes paraphrase
-  freely; verdict-level agreement (85%) is the meaningful measure.
+  freely; verdict-level agreement (90%) is the meaningful measure.
 
 ### 2. Release integration matrix (small pinned models)
 
@@ -318,8 +326,9 @@ Llama-3.2-1B-Instruct (Q4_K_M source), same source at several targets:
 | **6-bit g64** | **55.0%** | 0.0% | **PASS** |
 
 Qwen3.6-35B-A3B (IQ3_M source) at `--bits auto` → 3-bit: source 90.0% vs
-3-bit clean accuracy 55.0% (anomaly rate 41% vs 5%) — **FAIL**; the same
-source at 4-bit/6-bit passes.
+3-bit clean accuracy 55.0% (anomaly rate 41% vs 5%) — **FAIL**. No ARC gate
+has been run for 4-bit/6-bit targets of this JoyFox source; the PASS rows
+above are the Llama-3.2-1B calibration and are not evidence for this model.
 
 ### Where the raw data lives
 
@@ -327,7 +336,12 @@ source at 4-bit/6-bit passes.
   (+ `REPORT_BF16_ORACLE.md`), profiles in
   `research/paired_oracle/profiles/`, pinned-asset manifest in
   `research/paired_oracle/manifest.py` (16 pinned assets, 16.65 GB; weights
-  and dataset text are never committed).
+  and dataset text are never committed), machine-readable headline numbers
+  in `research/paired_oracle/results_summary.json`. The local oracle cache
+  was deleted after the study concluded; re-derive assets with
+  `python -m research.paired_oracle.manifest build --cache <dir>` and see
+  the Reproduction section of the report for commands and recorded
+  versions.
 * Capability gates: `eval/bench/results/FINAL_REPORT.md`,
   `eval/bench/results/*/`, `eval/reports/*/`.
 * Reproduce the converter-vs-official comparisons with the tools in
