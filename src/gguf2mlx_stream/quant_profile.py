@@ -229,3 +229,23 @@ def resolve_default_bits(args_bits: str | int | None, profile: QuantProfile | No
             "ignored — pass only one"
         )
     return profile.default_bits
+
+
+def resolve_default_group_size(
+    args_group_size: int | None, profile: QuantProfile | None
+) -> int | None:
+    """Resolve the effective conversion-level group size under a profile.
+
+    * explicit ``--group-size N`` + profile default -> conflict error
+    * flag absent (``None``) + profile default -> the profile default
+    * otherwise -> the original value unchanged (the CLI then applies 64)
+    """
+    if profile is None or profile.default_group_size is None:
+        return args_group_size
+    if isinstance(args_group_size, int):
+        raise ConversionError(
+            f"--group-size {args_group_size} conflicts with quant profile "
+            f"'{profile.name}' default group size {profile.default_group_size}; "
+            "the profile default would be ignored — pass only one"
+        )
+    return profile.default_group_size

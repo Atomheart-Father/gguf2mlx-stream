@@ -32,6 +32,7 @@ from .quant_profile import (
     apply_quant_profile,
     load_quant_profile,
     resolve_default_bits,
+    resolve_default_group_size,
 )
 from .quant_select import BitsDecision, auto_fidelity_warning, select_target_bits
 from .runner import ConversionRunner, QuantSettings
@@ -175,7 +176,8 @@ def cmd_convert(args: argparse.Namespace) -> int:
         config, applications, unmatched = apply_quant_profile(config, profile)
         if not args.quiet:
             print(f"[profile] {profile.name}: {len(applications)} rule(s) overridden, "
-                  f"default_bits={profile.default_bits}")
+                  f"default_bits={profile.default_bits} "
+                  f"default_group_size={profile.default_group_size}")
             for app in applications:
                 print(f"[profile]   {app.rule_display_name} -> bits={app.bits} "
                       f"group_size={app.group_size}")
@@ -188,6 +190,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
     effective_bits = resolve_default_bits(
         None if args.no_quantize else args.bits, profile
     )
+    effective_group_size = resolve_default_group_size(args.group_size, profile)
     decision = select_target_bits(plan, effective_bits)
     bits_record = decision.as_record()
     if profile:
@@ -206,7 +209,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
     quant = QuantSettings(
         bits=None if args.no_quantize else decision.bits,
-        group_size=args.group_size,
+        group_size=64 if effective_group_size is None else effective_group_size,
         mode=args.mode,
     )
     runner = ConversionRunner(
@@ -326,7 +329,9 @@ def build_parser() -> argparse.ArgumentParser:
         "sources with no mappable dominant family require an explicit value; "
         "auto-derived 3-bit targets print a fidelity warning (see README)",
     )
-    p.add_argument("--group-size", type=int, default=64)
+    p.add_argument("--group-size", type=int, default=None,
+                   help="quantization group size (default: 64, or the quant "
+                        "profile's default.group_size when one is set)")
     p.add_argument("--mode", default="affine", choices=("affine",))
     p.add_argument("--quant-profile", default=None,
                    help="opt-in JSON profile overriding per-rule quantization "

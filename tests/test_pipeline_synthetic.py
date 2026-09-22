@@ -409,3 +409,42 @@ def test_convert_bits_auto_3bit_warns_but_converts(tmp_path, monkeypatch, capsys
     cfg2 = json.loads((out_dir2 / "config.json").read_text())
     assert cfg2["quantization"]["bits"] == 3
     assert "fidelity_warning" not in cfg2["quantization_selection"]
+
+
+def test_quant_profile_default_group_size_applies(tmp_path):
+    """A profile ``default.group_size`` must reach QuantSettings when the CLI
+    flag is absent (recorded in the output config.json), and explicitly
+    passing --group-size alongside a profile default is a conflict."""
+    gguf_path, _, _, _ = build_fixture_gguf(tmp_path)
+    profile = tmp_path / "profile-g32.json"
+    profile.write_text(json.dumps(
+        {"name": "g32", "default": {"bits": 4, "group_size": 32}}))
+
+    out_dir = tmp_path / "out-profile-g32"
+    rc = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(out_dir),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-g32"),
+        "--quant-profile", str(profile),
+        "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc == 0
+    cfg = json.loads((out_dir / "config.json").read_text())
+    assert cfg["quantization"]["bits"] == 4
+    assert cfg["quantization"]["group_size"] == 32
+
+    # explicit flag + profile default: rejected, not silently ignored
+    rc = cli_main([
+        "convert", str(gguf_path),
+        "--arch-config", QWEN35_YAML,
+        "--output", str(tmp_path / "out-conflict"),
+        "--tokenizer-source", write_minimal_tokenizer(tmp_path / "tokenizer-conflict"),
+        "--quant-profile", str(profile),
+        "--group-size", "64",
+        "--chunk-mb", "1",
+        "--quiet",
+    ])
+    assert rc != 0
+    assert not (tmp_path / "out-conflict" / "config.json").exists()

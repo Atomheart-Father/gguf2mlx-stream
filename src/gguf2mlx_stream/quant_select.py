@@ -215,8 +215,11 @@ THREE_BIT_FIDELITY_WARNING = (
     "MLX affine 3-bit conversion is supported, but our paired-oracle "
     "experiments show substantial fidelity degradation at 3-bit. The "
     "degradation is primarily attributable to the MLX affine 3-bit "
-    "quantization grid rather than the GGUF->MLX transcoder. For practical "
-    "model quality, 4-bit or higher is recommended."
+    "quantization grid rather than the GGUF->MLX transcoder. Observed "
+    "capability-gate cost on same-weight calibrations: ARC-Challenge clean "
+    "accuracy 48% -> 29-31% (Llama-3.2-1B) and 90% -> 55% "
+    "(Qwen3.6-35B-A3B), with anomaly rates rising on thinking-model "
+    "protocols. For practical model quality, 4-bit or higher is recommended."
 )
 
 

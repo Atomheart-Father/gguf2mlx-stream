@@ -11,6 +11,7 @@ from gguf2mlx_stream.quant_profile import (
     apply_quant_profile,
     load_quant_profile,
     resolve_default_bits,
+    resolve_default_group_size,
 )
 
 
@@ -270,3 +271,39 @@ def test_none_profile_passes_through():
 def test_profile_bits_within_supported(tmp_path):
     profile = _profile_with_default(tmp_path, 6)
     assert resolve_default_bits("auto", profile) in SUPPORTED_BITS
+
+
+# ---------------------------------------------------------------------------
+# resolve_default_group_size
+# ---------------------------------------------------------------------------
+
+
+def _profile_with_group_default(tmp_path, bits=4, group_size=32):
+    return load_quant_profile(
+        _write_profile(tmp_path, {"name": "p",
+                                  "default": {"bits": bits, "group_size": group_size}})
+    )
+
+
+def test_group_default_resolves_when_flag_absent(tmp_path):
+    profile = _profile_with_group_default(tmp_path, group_size=32)
+    assert resolve_default_group_size(None, profile) == 32
+
+
+def test_explicit_group_size_conflicts_with_default(tmp_path):
+    profile = _profile_with_group_default(tmp_path, group_size=32)
+    with pytest.raises(ConversionError, match="conflicts"):
+        resolve_default_group_size(64, profile)
+
+
+def test_group_size_passes_through_without_profile_default(tmp_path):
+    profile = load_quant_profile(
+        _write_profile(tmp_path, {"name": "p", "rules": [{"match": "x", "bits": 4}]})
+    )
+    assert resolve_default_group_size(None, profile) is None
+    assert resolve_default_group_size(64, profile) == 64
+
+
+def test_group_size_none_profile_passes_through():
+    assert resolve_default_group_size(None, None) is None
+    assert resolve_default_group_size(32, None) == 32
